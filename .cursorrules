@@ -1,0 +1,79 @@
+Lessons
+- zsh 环境下优先使用 python3，而不是 python（避免 command not found）。
+- 在终端封装环境里执行复杂多行脚本时，优先落到仓库内脚本文件再运行，避免 here-doc/换行引发引号解析问题。
+- 代理字符串可能包含 user:pass@，日志必须脱敏；同时 Chrome 对带凭据的代理并不总能直接生效，需要额外方案。
+- 代理池 HTTP 请求优先用 requests（超时/状态码/异常更可控）；拿到的代理建议规范化为带 scheme 的 URL（如 http://ip:port），避免 Chrome 解析歧义。
+- 如需“动态 IP 轮换”级别的 HTTP 出口池，可评估 requests-ip-rotator（AWS API Gateway 出口 IP 轮换）；但它更适合纯 HTTP 客户端请求，不直接解决浏览器层（Chrome）代理问题。
+- 通用重试建议优先用 tenacity（可做指数退避/最大尝试次数/异步重试）。
+- MetaMask 扩展页可用 chrome-extension://<id>/home.html 直达；常见路由有 #onboarding/welcome、#initialize/welcome、#unlock。
+- 官方商店安装的 MetaMask 在 Chromium 系浏览器里扩展 ID 通常是 nkbihfbeogaeaoehlefnkodbefgpgknn；解压/开发者模式加载时 ID 可能变化，需要可配置。
+- 遇到 ERR_BLOCKED_BY_CLIENT/扩展 ID 被屏蔽时，避免硬编码商店 ID；优先在运行时从 chrome-extension:// 页面动态发现当前扩展 ID。
+- 需要让“解压/开发者模式加载”的扩展 ID 固定：在 manifest.json 里提供 key（base64 公钥）；使用同一 key 生成/打包扩展，可保持 ID 稳定。
+- MetaMask “SRP(助记词) 导入”是导入整个钱包；“私钥导入”是导入单个账号，且通常需要在已解锁钱包后通过 Import account 完成。
+- 批量跑建议每个账号独立日志目录与截图目录，避免混淆与覆盖。
+- Playwright 并行跑用例时不要用模块级全局变量保存扩展 Page（会串号）；用 fixtures 按用例创建/定位。
+- 如需保留 trace 且避免记录敏感输入（如 MetaMask 解锁密码），在 unlock 后再启动 tracing。
+- 动态代理池建议做成“按账号/按失败轮换”，并支持自定义请求头（Token）。
+- 如果要显著提升 MetaMask 自动化稳定性，可优先考虑基于 Playwright 的 Web3 E2E 工具链（Synpress/dappwright 一类），而不是纯手写 XPath。
+- dappeteer 已被官方标记为 DEPRECATED/归档；迁移方向优先看 Synpress（社区维护活跃）：https://github.com/ChainSafe/dappeteer
+- dAppwright 提供 Playwright + MetaMask 的封装：通过 bootstrap 拉起带扩展的 context，并用 wallet.approve()/switchNetwork 等高层 API 处理弹窗与确认。
+- dAppwright 近期版本提高了 Node 版本要求（需要在 CI/机器上统一 Node 主版本），避免“本地能跑/线上不能跑”。
+- Synpress 的 Playwright 集成与 MetaMask fixtures 示例（包含 metamaskPage/extensionId）：https://docs.synpress.io/docs/guides/playwright
+- Synpress 的 MetaMask API 覆盖 connect/sign/confirm tx/add account 等常见动作：https://docs.synpress.io/api-reference/playwright/classes/MetaMask
+- Playwright 原生支持 proxy 的 server/username/password（可全局或 per-context 配置）：https://playwright.dev/docs/network#http-proxy
+- Playwright 支持加载并测试 Chrome 扩展（通过 launchPersistentContext + chromium channel）：https://playwright.dev/docs/chrome-extensions
+- Playwright 对“真正点击工具栏打开扩展 popup”的支持仍有历史限制与讨论（issue #5593）：https://github.com/microsoft/playwright/issues/5593
+- Chrome/Chromium 同时加载多个扩展时，应使用单个参数并用逗号拼接路径（--load-extension=ext1,ext2）；多次传同名参数可能只生效一个。
+- 需要把 CapSolver apiKey 写入扩展配置时，避免直接改仓库里的扩展文件；优先拷贝到临时 context 目录后再写入，防止密钥落盘进仓库。
+- playwright-extra / stealth 属于社区方案且更新节奏偏慢，企业生产使用需谨慎评估与灰度：https://www.npmjs.com/package/playwright-extra
+- macOS 系统 Python 可能触发 urllib3 的 NotOpenSSLWarning（LibreSSL）；不影响脚本逻辑，需纯净环境可用 pyenv/conda。
+- 判断站点是否接入人机验证：优先抓首页 HTML，检查 challenges.cloudflare.com/turnstile/v0/api.js（Turnstile）与 google.com/recaptcha/api.js（reCAPTCHA）脚本引用。
+
+Notes
+- 当前仓库：LuckyX 自动化（Selenium + undetected-chromedriver + MetaMask）
+- 关键配置：luckyx_automation/config/settings.py 通过 dotenv 读取 .env
+- 当前能力映射：
+  - 多账号：ACCOUNTS_JSON/CSV -> 顺序跑，每账号独立日志/截图目录
+  - 代理：单账号 proxy 或 proxy pool API（main.py 里解析与规范化）
+  - MetaMask：加载本地扩展 + chrome-extension:// 路由 + XPath 点击流
+- Node/Playwright 迁移时建议保持的“外部契约”：
+  - 输入仍以账号列表为核心（label/proxy/srp/pk/email/invite_code）
+  - 每账号独立 artifacts（trace/video/screenshot/log），失败可重跑
+  - 代理策略仍做“按账号固定 + 失败轮换”，并保留代理池 API
+- 迁移执行步骤（最小可用 PoC -> 生产化）：
+  - Step 0：确定目标
+    - PoC 只验证 3 件事：connect、sign、confirm transaction（覆盖 MetaMask 弹窗链路）
+  - Step 1：选型
+    - Playwright 为主：优先 dAppwright（Playwright + MetaMask 封装）
+    - Cypress 体系/已有 Synpress：优先 Synpress
+  - Step 2：环境基线
+    - 固定 Node 主版本（避免 dAppwright/Playwright 版本不兼容）
+    - 先用 headed（MetaMask/扩展弹窗在 headless 下风险更高）
+  - Step 3：账号与状态隔离
+    - 每账号独立 BrowserContext（或独立 userDataDir），避免扩展状态串号
+    - 把“账号输入”保持为与 Python 一致的数据结构，便于平滑迁移
+  - Step 4：代理策略落地
+    - 启动/上下文级别设置 proxy（server/username/password）
+    - 代理池仍沿用现有 API：失败重试 + 按账号轮换 + 日志脱敏
+  - Step 5：可观测性与回放
+    - 默认开启 trace/screenshot/video（只在失败保留，避免磁盘爆炸）
+    - 失败按“步骤级”聚合（connect/sign/tx/页面逻辑），便于快速定位
+  - Step 6：与现有 Python 并行期
+    - 先把 MetaMask 相关链路迁走（痛点最大），站点页面逻辑可逐步迁移
+    - 迁移期保持同一套账号/代理配置输入，减少运维成本
+- 企业级可落地组件清单（按职责分层）：
+  - 执行与并行：@playwright/test（worker 并行、失败重跑、trace/video/screenshot）
+  - 钱包抽象层：Synpress（Playwright fixtures + MetaMask API）或 dAppwright（bootstrap/getWallet + approve/confirm）
+  - 扩展运行机制：Playwright launchPersistentContext + Chromium（扩展加载、extensionId 获取）
+  - 代理与出网：Playwright proxy（server/username/password）+ 旋转/粘性会话策略（按账号固定、失败轮换）
+  - 账号与状态：每账号独立 BrowserContext/userDataDir + 独立 artifacts 目录（避免状态串号）
+  - 可观测与审计：步骤级日志 + trace 回放 + 关键事件打点（connect/sign/tx/链上回执）
+  - 密钥与合规：助记词/私钥只进机密存储与内存，日志/截图/trace 不落敏感信息
+
+Tasks
+[X] 盘点当前仓库的自动化实现与依赖现状
+[X] 记录 Web3 钱包自动化路线与关键结论
+[X] 写出可执行的迁移步骤与注意事项
+[X] enterprise_pw：PoC 覆盖 connect/sign/confirm transaction
+[X] enterprise_pw：按账号落盘 artifacts 与脱敏 run.info
+[X] 确认 app.luckyx.world 使用 Turnstile 与 reCAPTCHA

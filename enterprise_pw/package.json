@@ -1,0 +1,31 @@
+{
+  "name": "luckyx-enterprise-web3-automation",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "install:browsers": "playwright install chromium",
+    "setup:capsolver": "ts-node scripts/setup-capsolver.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "@synthetixio/synpress": "^4.1.2",
+    "@types/adm-zip": "^0.5.7",
+    "@types/node": "^22.10.10",
+    "@viem/anvil": "^0.0.7",
+    "csv-parse": "^6.0.0",
+    "dotenv": "^16.4.7",
+    "imapflow": "^1.0.192",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "axios": "^1.13.3"
+  }
+}
