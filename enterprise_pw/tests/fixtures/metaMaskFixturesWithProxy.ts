@@ -112,7 +112,8 @@ export function metaMaskFixturesWithProxy(
 ) {
   return base.extend<MetaMaskFixtures>({
     artifactsDir: async ({}, use, testInfo) => {
-      const dir = path.join(process.cwd(), 'artifacts', sanitizeLabel(accountLabel), testInfo.testId)
+      const artifactsRoot = process.env.ARTIFACTS_DIR?.trim() || path.join(process.cwd(), 'artifacts')
+      const dir = path.join(artifactsRoot, sanitizeLabel(accountLabel), testInfo.testId)
       await mkdir(dir, { recursive: true })
       await use(dir)
     },

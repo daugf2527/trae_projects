@@ -13,6 +13,7 @@ export default defineConfig({
   workers: env.CI ? 1 : undefined,
   use: {
     baseURL: env.BASE_URL?.trim() || 'https://app.luckyx.world/',
+    outputDir: env.ARTIFACTS_DIR?.trim() || 'test-results',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     trace: 'retain-on-failure'
