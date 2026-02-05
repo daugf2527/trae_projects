@@ -10,7 +10,8 @@
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "install:browsers": "playwright install chromium",
-    "setup:capsolver": "ts-node scripts/setup-capsolver.ts"
+    "setup:capsolver": "ts-node scripts/setup-capsolver.ts",
+    "generate:wallet": "ts-node scripts/generate-wallet-env.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.50.0",
@@ -20,6 +21,7 @@
     "@viem/anvil": "^0.0.7",
     "csv-parse": "^6.0.0",
     "dotenv": "^16.4.7",
+    "ethers": "5.8.0",
     "imapflow": "^1.0.192",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3"
