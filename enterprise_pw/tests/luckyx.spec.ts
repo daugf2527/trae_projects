@@ -63,7 +63,7 @@ for (const account of accounts) {
   const walletSetup = defineWalletSetup(account.metamaskPassword, walletSetupFn)
   const test = metaMaskFixturesWithProxy(walletSetup, account.label, account.proxy ?? undefined)
 
-  test(`${account.label}: 连接钱包并打开 LuckyX`, async ({ page, metamask, artifactsDir }) => {
+  test(`${account.label}: 连接钱包并打开 LuckyX（邀请）`, async ({ page, metamask, artifactsDir }) => {
     await writeAccountRunInfo(artifactsDir, account.label, account.proxy ?? '')
 
     await waitForPossibleCloudflare(page)
@@ -82,6 +82,7 @@ for (const account of accounts) {
       emailPassword: account.emailPassword ?? '',
       emailImapServer: account.emailImapServer ?? ''
     })
+    await tryBindInviteCode(page, account.inviteCode ?? '')
   })
 
   test(`${account.label}: PoC 签名`, async ({ page, metamask, artifactsDir }) => {
@@ -320,6 +321,17 @@ async function tryBindEmail(
   const confirmButton = page.getByRole('button', { name: /confirm|bind|verify|确认|绑定|验证/i }).first()
   if (await confirmButton.isVisible().catch(() => false)) {
     await confirmButton.click().catch(() => {})
+  }
+}
+
+async function tryBindInviteCode(page: import('@playwright/test').Page, inviteCode: string): Promise<void> {
+  const code = inviteCode.trim()
+  if (!code) return
+
+  const input = page.getByPlaceholder(/invite code|邀请码/i).first()
+  if (await input.isVisible().catch(() => false)) {
+    await input.fill(code)
+    await page.getByRole('button', { name: /confirm|submit|绑定|确认/i }).first().click().catch(() => {})
   }
 }
 
