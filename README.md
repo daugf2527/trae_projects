@@ -69,6 +69,10 @@ bash run.sh --mode <python|pw> [--env <path>] [--accounts <path>] [--headless] [
 *   `ARTIFACTS_DIR`: Playwright 产物目录（trace/video/screenshot 输出）。
 *   `LOGS_DIR`: Python/Selenium 日志目录。
 
+### 4.1 Playwright 扩展加载说明
+
+*   Playwright 扩展加载需要 persistent context，建议使用自带 Chromium（`npx playwright install chromium`）。
+
 ### 5. 运行脚本
 
 ```bash
