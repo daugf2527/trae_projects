@@ -72,6 +72,7 @@ bash run.sh --mode <python|pw> [--env <path>] [--accounts <path>] [--headless] [
 ### 4.1 Playwright 扩展加载说明
 
 *   Playwright 扩展加载需要 persistent context，建议使用自带 Chromium（`npx playwright install chromium`）。
+*   Playwright 固定 MetaMask 扩展：设置 `METAMASK_EXTENSION_PATH` 指向本地解压目录（默认回退 `luckyx_automation/assets/metamask-extension`）。
 
 ### 5. 运行脚本
 
