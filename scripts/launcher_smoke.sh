@@ -7,3 +7,7 @@ if [[ "$out" != *"Usage:"* ]]; then
   echo "Expected Usage output"
   exit 1
 fi
+
+# Expect dry-run command for python mode
+cmd=$(bash ./run.sh --mode python --dry-run)
+[[ "$cmd" == *"python3"*"main.py"* ]] || exit 1
