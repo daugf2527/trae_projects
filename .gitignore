@@ -1,3 +1,4 @@
 .worktrees/
 luckyx_automation/logs/
+luckyx_automation/.env
 .DS_Store
