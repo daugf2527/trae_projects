@@ -18,6 +18,27 @@ async function getCapsolverPath(): Promise<string | null> {
   }
 }
 
+async function resolveLocalMetaMaskPath(): Promise<string | null> {
+  const fromEnv = (process.env.METAMASK_EXTENSION_PATH ?? '').trim()
+  const candidates: string[] = []
+  if (fromEnv) candidates.push(fromEnv)
+  candidates.push(path.resolve(process.cwd(), 'luckyx_automation', 'assets', 'metamask-extension'))
+  candidates.push(path.resolve(process.cwd(), '..', 'luckyx_automation', 'assets', 'metamask-extension'))
+
+  for (const p of candidates) {
+    try {
+      await access(p)
+      return p
+    } catch {
+      if (fromEnv && p === fromEnv) {
+        console.warn(`[WARN] METAMASK_EXTENSION_PATH not found: ${p}`)
+      }
+    }
+  }
+
+  return null
+}
+
 async function prepareCapsolverExtension(
   contextDirPath: string,
   proxy?: ProxyConfig
@@ -112,7 +133,8 @@ export function metaMaskFixturesWithProxy(
 ) {
   return base.extend<MetaMaskFixtures>({
     artifactsDir: async ({}, use, testInfo) => {
-      const dir = path.join(process.cwd(), 'artifacts', sanitizeLabel(accountLabel), testInfo.testId)
+      const artifactsRoot = process.env.ARTIFACTS_DIR?.trim() || path.join(process.cwd(), 'artifacts')
+      const dir = path.join(artifactsRoot, sanitizeLabel(accountLabel), testInfo.testId)
       await mkdir(dir, { recursive: true })
       await use(dir)
     },
@@ -141,7 +163,8 @@ export function metaMaskFixturesWithProxy(
 
       await cp(cacheDirPath, _contextPath, { recursive: true, force: true })
 
-      const metamaskPath = await prepareExtension()
+      const localMetaMaskPath = await resolveLocalMetaMaskPath()
+      const metamaskPath = localMetaMaskPath ?? (await prepareExtension())
       const extensions = [metamaskPath]
       const capsolverPath = await prepareCapsolverExtension(_contextPath, proxy)
       if (capsolverPath) extensions.push(capsolverPath)
@@ -233,7 +256,8 @@ async function createCacheForWalletSetup(
   proxy?: ProxyConfig
 ): Promise<void> {
   const tmpContextPath = await createTempContextDir('chromium', `cache_${walletSetup.hash}`)
-  const metamaskPath = await prepareExtension()
+  const localMetaMaskPath = await resolveLocalMetaMaskPath()
+  const metamaskPath = localMetaMaskPath ?? (await prepareExtension())
   const extensions = [metamaskPath]
   const capsolverPath = await prepareCapsolverExtension(tmpContextPath, proxy)
   if (capsolverPath) extensions.push(capsolverPath)

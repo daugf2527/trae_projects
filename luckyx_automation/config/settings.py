@@ -8,7 +8,7 @@ load_dotenv()
 # Base Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
 ASSETS_DIR = BASE_DIR / "assets"
-LOGS_DIR = BASE_DIR / "logs"
+LOGS_DIR = Path(os.getenv("LOGS_DIR", BASE_DIR / "logs"))
 
 # Ensure directories exist
 ASSETS_DIR.mkdir(exist_ok=True)

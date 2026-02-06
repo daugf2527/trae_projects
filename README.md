@@ -56,7 +56,25 @@ cp luckyx_automation/.env.example luckyx_automation/.env
 *   `EMAIL_ACCOUNT` / `PASSWORD`: 你的邮箱和应用专用密码（用于读取验证码）。
 *   `INVITE_CODE`: 你想绑定的邀请码。
 
-### 4. 运行脚本
+### 4. 启动器（可选）
+
+统一入口（Bash）：
+
+```bash
+bash run.sh --mode <python|pw> [--env <path>] [--accounts <path>] [--headless] [--base-url <url>] [--artifacts-dir <path>] [--dry-run]
+```
+
+常用环境变量：
+
+*   `ARTIFACTS_DIR`: Playwright 产物目录（trace/video/screenshot 输出）。
+*   `LOGS_DIR`: Python/Selenium 日志目录。
+
+### 4.1 Playwright 扩展加载说明
+
+*   Playwright 扩展加载需要 persistent context，建议使用自带 Chromium（`npx playwright install chromium`）。
+*   Playwright 固定 MetaMask 扩展：设置 `METAMASK_EXTENSION_PATH` 指向本地解压目录（默认回退 `luckyx_automation/assets/metamask-extension`）。
+
+### 5. 运行脚本
 
 ```bash
 python main.py

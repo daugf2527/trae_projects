@@ -4,10 +4,10 @@ import { appendFile } from 'node:fs/promises'
 import { defineWalletSetup } from '@synthetixio/synpress'
 import * as synpressMetaMask from '@synthetixio/synpress-metamask/playwright'
 import { createAnvil } from '@viem/anvil'
-import { ImapFlow } from 'imapflow'
 import { loadAccounts } from '../src/accounts.js'
 import { sanitizeLabel, stableId, redactSecret } from '../src/utils.js'
 import { parseProxy } from '../src/proxy.js'
+import { LuckyXPage } from '../src/luckyxPage.js'
 import { metaMaskFixturesWithProxy } from './fixtures/metaMaskFixturesWithProxy.js'
 
 const { MetaMask: MetaMaskClass } = synpressMetaMask as unknown as {
@@ -63,33 +63,36 @@ for (const account of accounts) {
   const walletSetup = defineWalletSetup(account.metamaskPassword, walletSetupFn)
   const test = metaMaskFixturesWithProxy(walletSetup, account.label, account.proxy ?? undefined)
 
-  test(`${account.label}: 连接钱包并打开 LuckyX`, async ({ page, metamask, artifactsDir }) => {
+  test(`${account.label}: 连接钱包并打开 LuckyX（邀请）`, async ({ page, metamask, artifactsDir }) => {
+    const luckyx = new LuckyXPage(page)
     await writeAccountRunInfo(artifactsDir, account.label, account.proxy ?? '')
 
     await waitForPossibleCloudflare(page)
     await page.waitForLoadState('domcontentloaded')
     await capture(page, artifactsDir, '01-home')
 
-    await connectLuckyX(page, metamask)
+    await luckyx.connect(metamask)
     await capture(page, artifactsDir, '02-connected')
 
     const address = await metamask.getAccountAddress()
     expect(address).toMatch(/^0x[a-fA-F0-9]{40}$/)
 
-    await tryDailyCheckIn(page)
-    await tryBindEmail(page, {
+    await luckyx.checkIn()
+    await luckyx.bindEmail({
       emailAccount: account.emailAccount ?? '',
       emailPassword: account.emailPassword ?? '',
       emailImapServer: account.emailImapServer ?? ''
     })
+    await luckyx.bindInvite(account.inviteCode ?? '')
   })
 
   test(`${account.label}: PoC 签名`, async ({ page, metamask, artifactsDir }) => {
+    const luckyx = new LuckyXPage(page)
     await writeAccountRunInfo(artifactsDir, account.label, account.proxy ?? '')
 
     await waitForPossibleCloudflare(page)
     await page.waitForLoadState('domcontentloaded')
-    await connectLuckyX(page, metamask)
+    await luckyx.connect(metamask)
 
     const signPromise = page.evaluate(async () => {
       const ethereum = (globalThis as any).ethereum as { request: (args: any) => Promise<unknown> }
@@ -116,6 +119,7 @@ for (const account of accounts) {
     const seedPhrase = (account.metamaskSeedPhrase ?? '').trim()
     baseTest.skip(!seedPhrase, '需要 metamask_seed_phrase 才能在本地链发交易')
 
+    const luckyx = new LuckyXPage(page)
     await writeAccountRunInfo(artifactsDir, account.label, account.proxy ?? '')
 
     const anvil = createAnvil({
@@ -131,7 +135,7 @@ for (const account of accounts) {
 
       await waitForPossibleCloudflare(page)
       await page.waitForLoadState('domcontentloaded')
-      await connectLuckyX(page, metamask)
+      await luckyx.connect(metamask)
 
       await metamask.addNetwork({
         name: 'Anvil',
@@ -185,18 +189,6 @@ async function capture(page: import('@playwright/test').Page, artifactsDir: stri
   await page.screenshot({ path: path.join(artifactsDir, `${name}.png`), fullPage: true }).catch(() => {})
 }
 
-async function connectLuckyX(page: import('@playwright/test').Page, metamask: any): Promise<void> {
-  const connectButton = page.getByRole('button', { name: /connect|wallet|连接|钱包/i }).first()
-  await expect(connectButton).toBeVisible({ timeout: 30_000 })
-  await connectButton.click()
-
-  const metamaskOption = page.getByText(/metamask/i).first()
-  await expect(metamaskOption).toBeVisible({ timeout: 30_000 })
-  await metamaskOption.click()
-
-  await metamask.connectToDapp()
-}
-
 async function waitForReceipt(
   rpcUrl: string,
   txHash: string,
@@ -237,137 +229,7 @@ async function waitForPossibleCloudflare(page: import('@playwright/test').Page):
   }
 }
 
-async function tryDailyCheckIn(page: import('@playwright/test').Page): Promise<void> {
-  const candidates = [
-    page.getByRole('button', { name: /签到|check[- ]?in/i }),
-    page.getByText(/签到|check[- ]?in/i),
-    page.getByRole('link', { name: /签到|check[- ]?in/i })
-  ]
-  for (const locator of candidates) {
-    const first = locator.first()
-    if (await first.isVisible().catch(() => false)) {
-      await first.click({ timeout: 5_000 }).catch(() => {})
-      await page.waitForTimeout(1_000)
-      return
-    }
-  }
-}
 
-async function tryBindEmail(
-  page: import('@playwright/test').Page,
-  input: { emailAccount: string; emailPassword: string; emailImapServer: string }
-): Promise<void> {
-  const email = input.emailAccount.trim()
-  if (!email) return
 
-  const openProfileCandidates = [
-    page.getByRole('button', { name: /profile|account|设置|我的/i }),
-    page.getByRole('link', { name: /profile|account|设置|我的/i }),
-    page.getByText(/profile|account|设置|我的/i)
-  ]
-  for (const locator of openProfileCandidates) {
-    const first = locator.first()
-    if (await first.isVisible().catch(() => false)) {
-      await first.click({ timeout: 5_000 }).catch(() => {})
-      break
-    }
-  }
 
-  const emailFieldCandidates = [
-    page.getByLabel(/email/i),
-    page.getByPlaceholder(/email/i),
-    page.locator('input[type="email"]')
-  ]
 
-  let emailField: import('@playwright/test').Locator | undefined
-  for (const locator of emailFieldCandidates) {
-    const first = locator.first()
-    if (await first.isVisible().catch(() => false)) {
-      emailField = first
-      break
-    }
-  }
-  if (!emailField) return
-
-  await emailField.fill(email)
-
-  const sendCodeButton = page.getByRole('button', { name: /send|code|验证码|获取验证码/i }).first()
-  if (await sendCodeButton.isVisible().catch(() => false)) {
-    await sendCodeButton.click().catch(() => {})
-  }
-
-  const code = await fetchLatestVerificationCodeImap({
-    emailAccount: input.emailAccount,
-    emailPassword: input.emailPassword,
-    emailImapServer: input.emailImapServer
-  }).catch(() => '')
-
-  if (!code) return
-
-  const codeFieldCandidates = [
-    page.getByLabel(/code|验证码/i),
-    page.getByPlaceholder(/code|验证码/i),
-    page.locator('input[inputmode="numeric"]')
-  ]
-  for (const locator of codeFieldCandidates) {
-    const first = locator.first()
-    if (await first.isVisible().catch(() => false)) {
-      await first.fill(code)
-      break
-    }
-  }
-
-  const confirmButton = page.getByRole('button', { name: /confirm|bind|verify|确认|绑定|验证/i }).first()
-  if (await confirmButton.isVisible().catch(() => false)) {
-    await confirmButton.click().catch(() => {})
-  }
-}
-
-async function fetchLatestVerificationCodeImap(input: {
-  emailAccount: string
-  emailPassword: string
-  emailImapServer: string
-}): Promise<string> {
-  const user = input.emailAccount.trim()
-  const pass = input.emailPassword.trim()
-  const serverRaw = input.emailImapServer.trim()
-  if (!user || !pass || !serverRaw) return ''
-
-  const { host, port } = parseImapServer(serverRaw)
-  const client = new ImapFlow({
-    host,
-    port,
-    secure: port === 993,
-    auth: { user, pass },
-    logger: false
-  })
-
-  try {
-    await client.connect()
-    await client.mailboxOpen('INBOX')
-    const since = new Date(Date.now() - 15 * 60 * 1000)
-    const uids = await client.search({ since })
-    if (uids === false) return ''
-    const list = Array.from(uids)
-    const latest = list.sort((a: number, b: number) => b - a)[0]
-    if (!latest) return ''
-    const msg = await client.fetchOne(latest, { source: true })
-    if (msg === false) return ''
-    const raw = msg.source?.toString('utf8') ?? ''
-    const match = raw.match(/\b(\d{6})\b/)
-    return match?.[1] ?? ''
-  } finally {
-    await client.logout().catch(() => {})
-  }
-}
-
-function parseImapServer(server: string): { host: string; port: number } {
-  const s = server.trim().replace(/^imaps?:\/\//, '')
-  const idx = s.lastIndexOf(':')
-  if (idx > 0 && idx < s.length - 1) {
-    const host = s.slice(0, idx)
-    const port = Number(s.slice(idx + 1))
-    if (host && Number.isFinite(port) && port > 0) return { host, port }
-  }
-  return { host: s, port: 993 }
-}
