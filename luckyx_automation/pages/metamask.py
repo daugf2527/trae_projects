@@ -1,9 +1,14 @@
 import time
+import re
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from luckyx_automation.config import settings
 from luckyx_automation.core.decorators import TaskContext, robust_step
+
+ALLOWED_SRP_WORD_COUNTS = (12, 15, 18, 21, 24)
+SRP_WORD_PATTERN = re.compile(r"\w+", flags=re.UNICODE)
+
 
 class MetaMaskController:
     def __init__(self, context: TaskContext):
@@ -134,6 +139,22 @@ class MetaMaskController:
         cfg = self._cfg()
         return ((cfg.metamask_private_key if cfg else "") or settings.METAMASK_PRIVATE_KEY or "").strip()
 
+    def _normalize_seed_phrase(self, srp: str) -> str:
+        return " ".join(SRP_WORD_PATTERN.findall((srp or "").strip().lower()))
+
+    def _split_seed_words(self, srp: str):
+        normalized = self._normalize_seed_phrase(srp)
+        if not normalized:
+            return []
+        return [w for w in normalized.split(" ") if w]
+
+    def _assert_valid_seed_word_count(self, words):
+        if len(words) in ALLOWED_SRP_WORD_COUNTS:
+            return
+        raise ValueError(
+            f"MetaMask supports only {', '.join(map(str, ALLOWED_SRP_WORD_COUNTS))} seed words; got {len(words)}."
+        )
+
     def open_metamask(self, route: str = ""):
         base = self._metamask_base_url()
         if not base:
@@ -205,9 +226,11 @@ class MetaMaskController:
             "//button[@data-testid='metametrics-i-agree']",
         ], timeout=12)
 
-        words = [w for w in srp.strip().split() if w]
+        words = self._split_seed_words(srp)
+        normalized_srp = " ".join(words)
         if not words:
             raise ValueError("Seed phrase is empty.")
+        self._assert_valid_seed_word_count(words)
 
         seed_textarea = None
         seed_inputs = []
@@ -245,7 +268,7 @@ class MetaMaskController:
 
         if seed_textarea:
             seed_textarea.clear()
-            seed_textarea.send_keys(" ".join(words))
+            seed_textarea.send_keys(normalized_srp)
         elif seed_inputs:
             if len(seed_inputs) < len(words):
                 raise ValueError(f"Seed phrase words count {len(words)} does not match input fields {len(seed_inputs)}.")
