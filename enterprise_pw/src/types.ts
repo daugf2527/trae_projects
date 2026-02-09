@@ -16,3 +16,10 @@ export type ProxyConfig = {
   password?: string
   bypass?: string
 }
+
+export type ResolveProxyOptions = {
+  accountLabel?: string
+  forceRotate?: boolean
+  maxPoolFetchAttempts?: number
+  initialBackoffMs?: number
+}

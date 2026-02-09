@@ -45,8 +45,8 @@ export function loadAccounts(): AccountConfig[] {
       label: 'env',
       proxy: getEnv('PROXY'),
       metamask_password: getEnv('METAMASK_PASSWORD'),
-      metamask_seed_phrase: getEnv('METAMASK_SEED_PHRASE'),
-      metamask_private_key: getEnv('METAMASK_PRIVATE_KEY'),
+      metamask_seed_phrase: getEnv('METAMASK_SEED_PHRASE') || getEnv('SRP'),
+      metamask_private_key: getEnv('METAMASK_PRIVATE_KEY') || getEnv('PK'),
       email_account: getEnv('EMAIL_ACCOUNT'),
       email_password: getEnv('EMAIL_PASSWORD'),
       email_imap_server: getEnv('EMAIL_IMAP_SERVER'),
@@ -62,13 +62,13 @@ function normalizeAccount(raw: Record<string, unknown>, idx: number): AccountCon
   const cfg: AccountConfig = {
     label,
     proxy: asString(raw.proxy || ''),
-    metamaskPassword: asString(raw.metamask_password || raw.metamaskPassword || ''),
-    metamaskSeedPhrase: asString(raw.metamask_seed_phrase || raw.metamaskSeedPhrase || ''),
-    metamaskPrivateKey: asString(raw.metamask_private_key || raw.metamaskPrivateKey || ''),
-    emailAccount: asString(raw.email_account || raw.emailAccount || ''),
+    metamaskPassword: asString(raw.metamask_password || raw.metamaskPassword || raw.password || ''),
+    metamaskSeedPhrase: asString(raw.metamask_seed_phrase || raw.metamaskSeedPhrase || raw.srp || raw.seed_phrase || ''),
+    metamaskPrivateKey: asString(raw.metamask_private_key || raw.metamaskPrivateKey || raw.pk || raw.private_key || ''),
+    emailAccount: asString(raw.email_account || raw.emailAccount || raw.email || ''),
     emailPassword: asString(raw.email_password || raw.emailPassword || ''),
     emailImapServer: asString(raw.email_imap_server || raw.emailImapServer || ''),
-    inviteCode: asString(raw.invite_code || raw.inviteCode || '')
+    inviteCode: asString(raw.invite_code || raw.inviteCode || raw.invite || '')
   }
 
   if (!cfg.metamaskPassword.trim()) throw new Error(`[${label}] metamask_password 为空`)

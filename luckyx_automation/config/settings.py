@@ -35,6 +35,8 @@ INVITE_CODE = os.getenv("INVITE_CODE", "") # The code to bind
 # Browser Settings
 HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
 PROXY = os.getenv("PROXY", "") # Format: http://user:pass@ip:port
+CHROME_USER_DATA_DIR = os.getenv("CHROME_USER_DATA_DIR", "")
+CHROME_BINARY = os.getenv("CHROME_BINARY", "")
 
 # Batch Settings
 ACCOUNTS_FILE = os.getenv("ACCOUNTS_FILE", "")

@@ -6,6 +6,7 @@ const env = ((globalThis as unknown as { process?: { env?: Record<string, string
 export default defineConfig({
   testDir: './tests',
   timeout: 180_000,
+  outputDir: env.ARTIFACTS_DIR?.trim() || 'test-results',
   expect: {
     timeout: 30_000
   },
@@ -13,7 +14,6 @@ export default defineConfig({
   workers: env.CI ? 1 : undefined,
   use: {
     baseURL: env.BASE_URL?.trim() || 'https://app.luckyx.world/',
-    outputDir: env.ARTIFACTS_DIR?.trim() || 'test-results',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     trace: 'retain-on-failure'

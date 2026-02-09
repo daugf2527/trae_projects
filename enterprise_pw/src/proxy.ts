@@ -1,4 +1,4 @@
-import { ProxyConfig } from './types.js'
+import { ProxyConfig, ResolveProxyOptions } from './types.js'
 
 function isTruthy(value: unknown): boolean {
   if (value === null || value === undefined) return false
@@ -167,8 +167,60 @@ export async function fetchProxyFromPool(): Promise<ProxyConfig | undefined> {
   }
 }
 
-export async function resolveProxyForAccount(accountProxy?: string): Promise<ProxyConfig | undefined> {
+const stickyProxyByAccount = new Map<string, ProxyConfig>()
+
+function parsePositiveInt(value: string, fallback: number): number {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 1) return fallback
+  return Math.floor(n)
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function fetchProxyFromPoolWithRetry(maxAttempts: number, initialBackoffMs: number): Promise<ProxyConfig | undefined> {
+  let backoffMs = Math.max(100, initialBackoffMs)
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const proxy = await fetchProxyFromPool()
+      if (proxy) return proxy
+    } catch {
+      // 网络或超时错误时继续重试
+    }
+    if (attempt < maxAttempts) {
+      await sleep(backoffMs)
+      backoffMs = Math.min(8_000, backoffMs * 2)
+    }
+  }
+  return undefined
+}
+
+export async function resolveProxyForAccount(
+  accountProxy?: string,
+  options: ResolveProxyOptions = {}
+): Promise<ProxyConfig | undefined> {
   const direct = parseProxy(accountProxy ?? '')
   if (direct) return direct
-  return fetchProxyFromPool()
+
+  const accountLabel = (options.accountLabel ?? '').trim()
+  const forceRotate = options.forceRotate === true
+  if (accountLabel && !forceRotate) {
+    const sticky = stickyProxyByAccount.get(accountLabel)
+    if (sticky) return sticky
+  }
+
+  const maxPoolFetchAttempts =
+    options.maxPoolFetchAttempts ??
+    parsePositiveInt((process.env.PROXY_POOL_RETRY ?? '').trim(), 1)
+  const initialBackoffMs =
+    options.initialBackoffMs ??
+    parsePositiveInt((process.env.PROXY_POOL_BACKOFF_MS ?? '').trim(), 500)
+
+  const fetched = await fetchProxyFromPoolWithRetry(maxPoolFetchAttempts, initialBackoffMs)
+  if (fetched && accountLabel) stickyProxyByAccount.set(accountLabel, fetched)
+  if (fetched) return fetched
+
+  if (accountLabel) return stickyProxyByAccount.get(accountLabel)
+  return undefined
 }

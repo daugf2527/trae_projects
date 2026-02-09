@@ -8,20 +8,22 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "playwright test",
+    "test:unit": "playwright test tests/unit",
     "test:headed": "playwright test --headed",
+    "wallet:generate": "ts-node scripts/generate-wallet-setups.ts",
+    "wallet:cache": "npm run wallet:generate && synpress wallet-setup/generated",
+    "wallet:cache:force": "npm run wallet:generate && synpress wallet-setup/generated --force --debug",
     "install:browsers": "playwright install chromium",
-    "setup:capsolver": "ts-node scripts/setup-capsolver.ts",
-    "generate:wallet": "ts-node scripts/generate-wallet-env.ts"
+    "setup:capsolver": "ts-node scripts/setup-capsolver.ts"
   },
   "devDependencies": {
-    "@playwright/test": "1.50.0",
-    "@synthetixio/synpress": "4.1.2",
+    "@playwright/test": "^1.48.2",
+    "@synthetixio/synpress": "^4.1.2",
     "@types/adm-zip": "^0.5.7",
     "@types/node": "^22.10.10",
     "@viem/anvil": "^0.0.7",
     "csv-parse": "^6.0.0",
     "dotenv": "^16.4.7",
-    "ethers": "5.8.0",
     "imapflow": "^1.0.192",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3"

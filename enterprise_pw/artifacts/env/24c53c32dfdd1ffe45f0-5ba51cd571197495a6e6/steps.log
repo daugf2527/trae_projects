@@ -1,0 +1,14 @@
+[2026-02-06T05:16:31.315Z] wait_challenge start
+[2026-02-06T05:16:31.350Z] wait_challenge ok 35ms
+[2026-02-06T05:16:34.515Z] connect_wallet start
+[2026-02-06T05:17:04.529Z] connect_wallet fail 30014ms [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+Locator: getByRole('button', { name: /connect|wallet|连接|钱包/i }).first()
+Expected: visible
+Timeout: 30000ms
+Error: element(s) not found
+
+Call log:
+[2m  - Expect "toBeVisible" with timeout 30000ms[22m
+[2m  - waiting for getByRole('button', { name: /connect|wallet|连接|钱包/i }).first()[22m
+

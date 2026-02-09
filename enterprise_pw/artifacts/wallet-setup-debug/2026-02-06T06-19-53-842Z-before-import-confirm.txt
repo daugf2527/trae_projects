@@ -1,0 +1,63 @@
+አማርኛ
+العربية
+български
+বাংলা
+Català
+Čeština
+Dansk
+Deutsch
+ελληνικά
+English
+Español
+Español (Latin America)
+Estonian
+فارسی
+Suomi
+Filipino
+Français
+Gaeilge
+ગુજરાત
+עברית
+मानक हिन्दी
+हिन्दी
+Hrvatski
+Kreyòl ayisyen
+Magyar
+Bahasa Indonesia
+Italiano
+日本語
+ಕನ್ನಡ
+한국어
+Lietuviškai
+Latvian
+മലയാളം
+मराठी
+Malay
+Nederlands
+Norwegian
+Polskie
+Português
+Português (Brazillian)
+Português (European)
+Limba română
+Русский
+Slovenčina
+Slovenščina
+српски
+Svenska
+Swahili
+தமிழ்
+తెలుగు
+ไทย
+Filipino
+Türkçe
+Українська мова
+Tiếng Việt
+中文(简体)
+中文(繁體)
+导入钱包
+
+输入您的私钥助记词
+
+粘贴
+继续

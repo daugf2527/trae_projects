@@ -4,6 +4,10 @@ import logging
 import base64
 import hashlib
 import json
+import tempfile
+import subprocess
+import re
+from pathlib import Path
 from luckyx_automation.config import settings
 try:
     from capsolver_extension_python import Capsolver
@@ -11,6 +15,47 @@ except ImportError:
     Capsolver = None
 
 class DriverFactory:
+    @staticmethod
+    def _detect_chrome_binary_and_major(logger: logging.Logger):
+        configured = (getattr(settings, "CHROME_BINARY", "") or "").strip()
+        candidates = [
+            configured,
+            "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+            str(
+                Path.home()
+                / "Library/Caches/ms-playwright/chromium-1208/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+            ),
+            str(
+                Path.home() / "Library/Caches/ms-playwright/chromium-1208/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium"
+            ),
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ]
+
+        for candidate in candidates:
+            if not candidate:
+                continue
+            path = Path(candidate).expanduser()
+            if not path.exists():
+                continue
+            try:
+                proc = subprocess.run(
+                    [str(path), "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                text = f"{proc.stdout}\n{proc.stderr}".strip()
+                m = re.search(r"(\d+)\.\d+\.\d+\.\d+", text)
+                if m:
+                    major = int(m.group(1))
+                    logger.info(f"Detected Chrome binary: {path} (major={major})")
+                    return str(path), major
+            except Exception as e:
+                logger.debug(f"Failed to detect Chrome version from {path}: {e}")
+
+        return "", 0
+
     @staticmethod
     def _extension_id_from_manifest_key(extension_dir, logger: logging.Logger) -> str:
         try:
@@ -205,6 +250,18 @@ class DriverFactory:
             options.add_argument("--no-sandbox")
 
         options.add_argument("--disable-popup-blocking")
+
+        configured_profile = (getattr(settings, "CHROME_USER_DATA_DIR", "") or "").strip()
+        if configured_profile:
+            profile_dir = Path(configured_profile).expanduser()
+        else:
+            profile_dir = Path(tempfile.gettempdir()) / "luckyx_chrome_profile"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        crash_dir = profile_dir / "Crashpad"
+        crash_dir.mkdir(parents=True, exist_ok=True)
+        options.add_argument(f"--user-data-dir={profile_dir}")
+        options.add_argument(f"--crash-dumps-dir={crash_dir}")
+        logger.info(f"Using Chrome user data dir: {profile_dir}")
         
         # Proxy Support
         proxy_to_use = (proxy or settings.PROXY or "").strip()
@@ -216,10 +273,20 @@ class DriverFactory:
 
         logger.info("Starting Browser Process...")
         try:
+            chrome_binary, chrome_major = DriverFactory._detect_chrome_binary_and_major(logger)
+            if chrome_binary:
+                options.binary_location = chrome_binary
+                logger.info(f"Using Chrome binary: {chrome_binary}")
+            chrome_kwargs = {
+                "options": options,
+                "headless": settings.HEADLESS,
+                "use_subprocess": True,
+            }
+            if chrome_major > 0:
+                chrome_kwargs["version_main"] = chrome_major
+
             driver = uc.Chrome(
-                options=options,
-                headless=settings.HEADLESS,
-                use_subprocess=True,
+                **chrome_kwargs,
             )
             driver.implicitly_wait(10)
             logger.info("Browser started successfully.")
