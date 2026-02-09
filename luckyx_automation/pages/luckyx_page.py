@@ -86,7 +86,7 @@ class LuckyXPage:
                 self.logger.info("No Check-in button found (maybe already checked in?).")
                 
         except Exception as e:
-            self.logger.warning(f"Error during check-in: {e}")
+            self.logger.warning(f"[TASK_FAILED] Daily check-in failed: {e}")
 
     @robust_step(max_retries=2)
     def bind_email(self):
@@ -137,7 +137,7 @@ class LuckyXPage:
             confirm_btn.click()
             self.logger.info("Email binding submitted.")
         else:
-            self.logger.error("Failed to get verification code.")
+            self.logger.error("[TASK_FAILED] Email binding failed: Could not get verification code.")
 
     @robust_step(max_retries=2)
     def handle_invites(self):
@@ -165,7 +165,7 @@ class LuckyXPage:
             with open(out_path, "a", encoding="utf-8") as f:
                 f.write(f"{label}\t{my_link}\n")
         except Exception as e:
-            self.logger.warning(f"Could not extract invite link: {e}")
+            self.logger.warning(f"[TASK_FAILED] Could not extract invite link: {e}")
 
         # 2. Enter Invite Code
         if invite_code:
@@ -179,4 +179,4 @@ class LuckyXPage:
                 else:
                     self.logger.info("Invite code input not found (maybe already bound?).")
             except Exception as e:
-                self.logger.warning(f"Error entering invite code: {e}")
+                self.logger.warning(f"[TASK_FAILED] Error entering invite code: {e}")

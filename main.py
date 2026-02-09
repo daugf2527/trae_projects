@@ -174,7 +174,7 @@ def _fetch_proxy_from_pool(logger) -> str:
         except Exception as e:
             logger.warning(f"Invalid PROXY_POOL_HEADERS_JSON: {e}")
     
-    last_err = None
+    last_err = RuntimeError("Unknown proxy pool error")
     for attempt in range(3):
         try:
             resp = requests.get(
@@ -238,6 +238,7 @@ def _load_accounts(logger):
             raise ValueError("ACCOUNTS_JSON must be a JSON object or array.")
         for i, item in enumerate(parsed):
             if not isinstance(item, dict):
+                logger.warning(f"Skipping account #{i+1}: not a valid configuration object")
                 continue
             for field in _ACCOUNT_STR_FIELDS:
                 val = item.get(field)

@@ -309,6 +309,8 @@ class DriverFactory:
                 **chrome_kwargs,
             )
             driver.implicitly_wait(10)
+            driver.set_page_load_timeout(60)  # Max 60s for page load
+            driver.set_script_timeout(30)     # Max 30s for script execution
             logger.info("Browser started successfully.")
             
             ext_id = (settings.METAMASK_EXTENSION_ID or "").strip()

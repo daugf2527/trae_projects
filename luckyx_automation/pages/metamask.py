@@ -207,7 +207,10 @@ class MetaMaskController:
         password = self._metamask_password()
         end = time.time() + 25
         pw_inputs = []
-        while time.time() < end:
+        max_iterations = 125  # 25s / 0.2s = 125 max
+        iteration = 0
+        while time.time() < end and iteration < max_iterations:
+            iteration += 1
             pw_inputs = []
             for el in self.driver.find_elements(By.XPATH, "//input[@type='password']"):
                 try:
@@ -269,7 +272,10 @@ class MetaMaskController:
         password = self._metamask_password()
         end = time.time() + 25
         pw_inputs = []
-        while time.time() < end:
+        max_iterations = 125
+        iteration = 0
+        while time.time() < end and iteration < max_iterations:
+            iteration += 1
             pw_inputs = []
             for el in self.driver.find_elements(By.XPATH, "//input[@type='password']"):
                 try:

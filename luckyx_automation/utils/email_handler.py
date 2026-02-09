@@ -27,62 +27,66 @@ class EmailHandler:
         """
         self.logger.info(f"Waiting for email with subject containing '{subject_keyword}'...")
         start_time = time.time()
+        mail = None
         
-        while time.time() - start_time < wait_time:
-            mail = None
-            try:
-                mail = imaplib.IMAP4_SSL(self.imap_server, timeout=30)
-                mail.login(self.username, self.password)
-                typ, data = mail.select("inbox")
-                
-                if typ != "OK":
-                    time.sleep(poll_interval)
-                    continue
-
-                # Optimization: Directly fetch last 5 messages instead of SEARCH ALL
+        try:
+            # Establish connection once outside the loop
+            mail = imaplib.IMAP4_SSL(self.imap_server, timeout=30)
+            mail.login(self.username, self.password)
+            self.logger.debug("IMAP connection established.")
+            
+            while time.time() - start_time < wait_time:
                 try:
-                    num_msgs = int(data[0])
-                except (ValueError, IndexError):
-                    num_msgs = 0
+                    typ, data = mail.select("inbox")
+                    
+                    if typ != "OK":
+                        time.sleep(poll_interval)
+                        continue
 
-                if num_msgs == 0:
-                    time.sleep(poll_interval)
-                    continue
+                    # Optimization: Directly fetch last 5 messages instead of SEARCH ALL
+                    try:
+                        num_msgs = int(data[0])
+                    except (ValueError, IndexError):
+                        num_msgs = 0
 
-                start_id = max(1, num_msgs - 4)
-                end_id = num_msgs
-                status, msg_data = mail.fetch(f"{start_id}:{end_id}", "(RFC822)")
-                
-                if status != "OK":
-                    time.sleep(poll_interval)
-                    continue
+                    if num_msgs == 0:
+                        time.sleep(poll_interval)
+                        continue
 
-                # msg_data contains tuples of (header, body) and closing parenthesis strings
-                # We need to parse them. They come in order.
-                for response_part in reversed(msg_data):
-                    if isinstance(response_part, tuple):
-                        msg = email.message_from_bytes(response_part[1])
-                        
-                        # Decode subject
-                        raw_subject = msg.get("Subject", "") or ""
-                        decoded = decode_header(raw_subject)
-                        subject_part, encoding = decoded[0] if decoded else ("", None)
-                        if isinstance(subject_part, bytes):
-                            subject = subject_part.decode(encoding if encoding else "utf-8", errors="ignore")
-                        else:
-                            subject = str(subject_part)
-                        
-                        if subject_keyword.lower() in subject.lower():
-                            # Found the email, extract body
+                    start_id = max(1, num_msgs - 4)
+                    end_id = num_msgs
+                    status, msg_data = mail.fetch(f"{start_id}:{end_id}", "(RFC822)")
+                    
+                    if status != "OK":
+                        time.sleep(poll_interval)
+                        continue
+
+                    # msg_data contains tuples of (header, body) and closing parenthesis strings
+                    # We need to parse them. They come in order.
+                    for response_part in reversed(msg_data):
+                        if isinstance(response_part, tuple):
+                            msg = email.message_from_bytes(response_part[1])
+                            subj_raw = msg.get("Subject", "")
+                            subj = ""
+                            if subj_raw:
+                                decoded_parts = decode_header(subj_raw)
+                                for part, enc in decoded_parts:
+                                    if isinstance(part, bytes):
+                                        subj += part.decode(enc or "utf-8", errors="ignore")
+                                    else:
+                                        subj += part
+                            
+                            if subject_keyword.lower() not in subj.lower():
+                                continue
+                            
+                            # Found matching subject
                             body = ""
                             if msg.is_multipart():
                                 for part in msg.walk():
-                                    ctype = (part.get_content_type() or "").lower()
-                                    if ctype in ("text/plain", "text/html"):
+                                    if part.get_content_type() == "text/plain":
                                         payload = part.get_payload(decode=True)
-                                        if payload:
-                                            body = payload.decode(errors="ignore")
-                                            break
+                                        body = payload.decode(errors="ignore") if payload else ""
+                                        break
                             else:
                                 payload = msg.get_payload(decode=True)
                                 body = payload.decode(errors="ignore") if payload else ""
@@ -93,16 +97,29 @@ class EmailHandler:
                                 code = match.group(0)
                                 self.logger.info("Found verification code.")
                                 return code
-            except Exception as e:
-                self.logger.warning(f"Error checking email: {_sanitize_message(str(e))}")
-            finally:
-                try:
-                    if mail is not None:
-                        mail.logout()
-                except Exception:
-                    pass
-            
-            time.sleep(poll_interval)
+                except Exception as e:
+                    # Connection error - try to reconnect
+                    self.logger.warning(f"Error during email check: {_sanitize_message(str(e))}, reconnecting...")
+                    try:
+                        if mail is not None:
+                            mail.logout()
+                    except Exception:
+                        pass
+                    try:
+                        mail = imaplib.IMAP4_SSL(self.imap_server, timeout=30)
+                        mail.login(self.username, self.password)
+                    except Exception as reconnect_err:
+                        self.logger.error(f"Failed to reconnect: {_sanitize_message(str(reconnect_err))}")
+                        time.sleep(poll_interval)
+                        continue
+                
+                time.sleep(poll_interval)
+        finally:
+            try:
+                if mail is not None:
+                    mail.logout()
+            except Exception:
+                pass
             
         self.logger.warning("Timeout waiting for email verification code.")
         return None
