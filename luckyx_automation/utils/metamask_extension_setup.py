@@ -10,14 +10,28 @@ from pathlib import Path
 
 
 def _get_chrome_version() -> str:
-    chrome_bin = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    try:
-        out = subprocess.check_output([chrome_bin, "--version"], text=True).strip()
-        m = re.search(r"(\\d+\\.\\d+\\.\\d+\\.\\d+)", out)
-        if m:
-            return m.group(1)
-    except Exception:
-        pass
+    import platform
+    if platform.system() == "Darwin":
+        candidates = [
+            "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        ]
+    else:
+        candidates = [
+            "/usr/bin/google-chrome-for-testing",
+            "/usr/bin/google-chrome-stable",
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/chromium",
+        ]
+    for chrome_bin in candidates:
+        try:
+            out = subprocess.check_output([chrome_bin, "--version"], text=True, timeout=5).strip()
+            m = re.search(r"(\d+\.\d+\.\d+\.\d+)", out)
+            if m:
+                return m.group(1)
+        except Exception:
+            continue
     return "120.0.0.0"
 
 
@@ -56,6 +70,10 @@ def download_and_extract_metamask(target_dir: Path, extension_id: str = "nkbihfb
     target_dir.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        for member in zf.namelist():
+            dest = (target_dir / member).resolve()
+            if not str(dest).startswith(str(target_dir.resolve())):
+                raise RuntimeError(f"Zip Slip detected: {member}")
         zf.extractall(target_dir)
 
     manifest = target_dir / "manifest.json"
@@ -72,7 +90,7 @@ def main() -> int:
         print(str(out))
         return 0
     except Exception as e:
-        sys.stderr.write(f"{e}\\n")
+        sys.stderr.write(f"{e}\n")
         return 1
 
 

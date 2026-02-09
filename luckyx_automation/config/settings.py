@@ -2,11 +2,12 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
-
 # Base Paths
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from .env in BASE_DIR (must happen before any os.getenv calls)
+load_dotenv(BASE_DIR / ".env")
+
 ASSETS_DIR = BASE_DIR / "assets"
 LOGS_DIR = Path(os.getenv("LOGS_DIR", BASE_DIR / "logs"))
 

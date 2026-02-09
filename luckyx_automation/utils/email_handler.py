@@ -6,6 +6,7 @@ from email.header import decode_header
 import logging
 from typing import Optional
 from luckyx_automation.config import settings
+from luckyx_automation.core.decorators import _sanitize_message
 
 class EmailHandler:
     def __init__(
@@ -30,58 +31,70 @@ class EmailHandler:
         while time.time() - start_time < wait_time:
             mail = None
             try:
-                mail = imaplib.IMAP4_SSL(self.imap_server)
+                mail = imaplib.IMAP4_SSL(self.imap_server, timeout=30)
                 mail.login(self.username, self.password)
-                mail.select("inbox")
+                typ, data = mail.select("inbox")
+                
+                if typ != "OK":
+                    time.sleep(poll_interval)
+                    continue
 
-                # Search for emails
-                # SEARCH since <date> could be added for optimization, but usually just fetching last few is fine
-                status, messages = mail.search(None, "ALL")
+                # Optimization: Directly fetch last 5 messages instead of SEARCH ALL
+                try:
+                    num_msgs = int(data[0])
+                except (ValueError, IndexError):
+                    num_msgs = 0
+
+                if num_msgs == 0:
+                    time.sleep(poll_interval)
+                    continue
+
+                start_id = max(1, num_msgs - 4)
+                end_id = num_msgs
+                status, msg_data = mail.fetch(f"{start_id}:{end_id}", "(RFC822)")
                 
                 if status != "OK":
                     time.sleep(poll_interval)
                     continue
 
-                email_ids = messages[0].split()
-                # Check the last 3 emails
-                for e_id in reversed(email_ids[-3:]):
-                    status, msg_data = mail.fetch(e_id, "(RFC822)")
-                    for response_part in msg_data:
-                        if isinstance(response_part, tuple):
-                            msg = email.message_from_bytes(response_part[1])
-                            
-                            # Decode subject
-                            raw_subject = msg.get("Subject", "") or ""
-                            decoded = decode_header(raw_subject)
-                            subject_part, encoding = decoded[0] if decoded else ("", None)
-                            if isinstance(subject_part, bytes):
-                                subject = subject_part.decode(encoding if encoding else "utf-8", errors="ignore")
+                # msg_data contains tuples of (header, body) and closing parenthesis strings
+                # We need to parse them. They come in order.
+                for response_part in reversed(msg_data):
+                    if isinstance(response_part, tuple):
+                        msg = email.message_from_bytes(response_part[1])
+                        
+                        # Decode subject
+                        raw_subject = msg.get("Subject", "") or ""
+                        decoded = decode_header(raw_subject)
+                        subject_part, encoding = decoded[0] if decoded else ("", None)
+                        if isinstance(subject_part, bytes):
+                            subject = subject_part.decode(encoding if encoding else "utf-8", errors="ignore")
+                        else:
+                            subject = str(subject_part)
+                        
+                        if subject_keyword.lower() in subject.lower():
+                            # Found the email, extract body
+                            body = ""
+                            if msg.is_multipart():
+                                for part in msg.walk():
+                                    ctype = (part.get_content_type() or "").lower()
+                                    if ctype in ("text/plain", "text/html"):
+                                        payload = part.get_payload(decode=True)
+                                        if payload:
+                                            body = payload.decode(errors="ignore")
+                                            break
                             else:
-                                subject = str(subject_part)
+                                payload = msg.get_payload(decode=True)
+                                body = payload.decode(errors="ignore") if payload else ""
                             
-                            if subject_keyword.lower() in subject.lower():
-                                # Found the email, extract body
-                                body = ""
-                                if msg.is_multipart():
-                                    for part in msg.walk():
-                                        ctype = (part.get_content_type() or "").lower()
-                                        if ctype in ("text/plain", "text/html"):
-                                            payload = part.get_payload(decode=True)
-                                            if payload:
-                                                body = payload.decode(errors="ignore")
-                                                break
-                                else:
-                                    payload = msg.get_payload(decode=True)
-                                    body = payload.decode(errors="ignore") if payload else ""
-                                
-                                # Try to find a 6-digit code
-                                match = re.search(r'\b\d{6}\b', body)
-                                if match:
-                                    code = match.group(0)
-                                    self.logger.info("Found verification code.")
-                                    return code
+                            # Try to find a 6-digit code
+                            match = re.search(r'\b\d{6}\b', body)
+                            if match:
+                                code = match.group(0)
+                                self.logger.info("Found verification code.")
+                                return code
             except Exception as e:
-                self.logger.warning(f"Error checking email: {e}")
+                self.logger.warning(f"Error checking email: {_sanitize_message(str(e))}")
             finally:
                 try:
                     if mail is not None:

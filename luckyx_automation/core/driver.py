@@ -16,20 +16,30 @@ except ImportError:
 
 class DriverFactory:
     @staticmethod
-    def _detect_chrome_binary_and_major(logger: logging.Logger):
+    def _detect_chrome_binary_and_major(logger: logging.Logger) -> tuple:
         configured = (getattr(settings, "CHROME_BINARY", "") or "").strip()
-        candidates = [
-            configured,
-            "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-            str(
-                Path.home()
-                / "Library/Caches/ms-playwright/chromium-1208/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
-            ),
-            str(
-                Path.home() / "Library/Caches/ms-playwright/chromium-1208/chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium"
-            ),
-            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        ]
+        candidates = [configured]
+
+        if platform.system() == "Darwin":
+            candidates.append(
+                "/Applications/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+            )
+            pw_base = Path.home() / "Library/Caches/ms-playwright"
+            for chromium_dir in sorted(pw_base.glob("chromium-*/chrome-mac*/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"), reverse=True):
+                candidates.append(str(chromium_dir))
+            for chromium_dir in sorted(pw_base.glob("chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium"), reverse=True):
+                candidates.append(str(chromium_dir))
+            candidates.append(
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+            )
+        else:
+            candidates += [
+                "/usr/bin/google-chrome-for-testing",
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/google-chrome",
+                "/usr/bin/chromium-browser",
+                "/usr/bin/chromium",
+            ]
 
         for candidate in candidates:
             if not candidate:
@@ -75,7 +85,14 @@ class DriverFactory:
             return ""
 
     @staticmethod
-    def _discover_metamask_extension_id(driver, logger: logging.Logger) -> str:
+    def discover_extension_id(driver, logger: logging.Logger) -> str:
+        """
+        Unified method to discover MetaMask extension ID from:
+        1. CDP Target.getTargets (most reliable)
+        2. chrome://extensions/ (DOM scraping)
+        3. Window handles/titles (fallback)
+        """
+        # 1. CDP Discovery
         try:
             data = driver.execute_cdp_cmd("Target.getTargets", {})
             infos = (data or {}).get("targetInfos") or []
@@ -99,11 +116,12 @@ class DriverFactory:
                 candidates.sort(key=lambda x: x[0], reverse=True)
                 best = candidates[0]
                 if best[0] > 0:
-                    logger.info(f"Discovered MetaMask extension id: {best[1]} (url={best[2]})")
+                    logger.info(f"Discovered MetaMask extension id (CDP): {best[1]}")
                     return best[1]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"CDP discovery failed: {e}")
 
+        # 2. chrome://extensions/ Discovery
         try:
             driver.get("chrome://extensions/")
             candidates = driver.execute_script(
@@ -148,11 +166,12 @@ class DriverFactory:
                 name = (item.get("name") or "").strip().lower()
                 ext_id = (item.get("id") or "").strip().lower()
                 if "metamask" in name and ext_id:
-                    logger.info(f"Discovered MetaMask extension id: {ext_id} (from chrome://extensions/)")
+                    logger.info(f"Discovered MetaMask extension id (chrome://extensions): {ext_id}")
                     return ext_id
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"chrome://extensions discovery failed: {e}")
 
+        # 3. Window Handle Discovery
         original = None
         try:
             original = driver.current_window_handle
@@ -177,7 +196,7 @@ class DriverFactory:
                     score += 3
                 if "#onboarding" in url.lower() or "#initialize" in url.lower() or "#unlock" in url.lower():
                     score += 2
-                candidates.append((score, ext_id, url, title))
+                candidates.append((score, ext_id))
             except Exception:
                 continue
 
@@ -195,7 +214,7 @@ class DriverFactory:
         if best[0] <= 0:
             return ""
 
-        logger.info(f"Discovered MetaMask extension id: {best[1]} (url={best[2]})")
+        logger.info(f"Discovered MetaMask extension id (Window Handles): {best[1]}")
         return best[1]
 
     @staticmethod
@@ -210,9 +229,9 @@ class DriverFactory:
             return "***"
 
     @staticmethod
-    def create_driver(logger: logging.Logger, proxy: str = ""):
+    def create_driver(logger: logging.Logger, proxy: str = "") -> tuple:
         """
-        Creates and returns an undetected_chromedriver instance with MetaMask loaded.
+        Creates and returns (driver, extension_id, profile_dir).
         """
         if settings.HEADLESS:
             raise RuntimeError("HEADLESS=true is not supported with MetaMask automation.")
@@ -254,9 +273,9 @@ class DriverFactory:
         configured_profile = (getattr(settings, "CHROME_USER_DATA_DIR", "") or "").strip()
         if configured_profile:
             profile_dir = Path(configured_profile).expanduser()
+            profile_dir.mkdir(parents=True, exist_ok=True)
         else:
-            profile_dir = Path(tempfile.gettempdir()) / "luckyx_chrome_profile"
-        profile_dir.mkdir(parents=True, exist_ok=True)
+            profile_dir = Path(tempfile.mkdtemp(prefix="luckyx_chrome_"))
         crash_dir = profile_dir / "Crashpad"
         crash_dir.mkdir(parents=True, exist_ok=True)
         options.add_argument(f"--user-data-dir={profile_dir}")
@@ -290,15 +309,19 @@ class DriverFactory:
             )
             driver.implicitly_wait(10)
             logger.info("Browser started successfully.")
+            
+            ext_id = (settings.METAMASK_EXTENSION_ID or "").strip()
             try:
-                if not (settings.METAMASK_EXTENSION_ID or "").strip():
+                if not ext_id:
                     from_key = DriverFactory._extension_id_from_manifest_key(settings.METAMASK_EXTENSION_PATH, logger)
                     if from_key:
-                        settings.METAMASK_EXTENSION_ID = from_key
-                discovered = DriverFactory._discover_metamask_extension_id(driver, logger)
+                        ext_id = from_key
+                
+                # Try to discover if still empty or verify
+                discovered = DriverFactory.discover_extension_id(driver, logger)
                 if discovered:
-                    settings.METAMASK_EXTENSION_ID = discovered
-                ext_id = (settings.METAMASK_EXTENSION_ID or "").strip()
+                    ext_id = discovered
+                
                 if ext_id:
                     mm_urls = [
                         f"chrome-extension://{ext_id}/home.html#onboarding/welcome",
@@ -315,7 +338,8 @@ class DriverFactory:
                             logger.debug(f"Failed to open MetaMask URL '{url}': {inner}")
             except Exception as e:
                 logger.warning(f"Failed to open MetaMask extension page: {e}")
-            return driver
+            
+            return driver, ext_id, profile_dir
         except Exception as e:
             logger.critical(f"Failed to start browser: {e}")
             raise

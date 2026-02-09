@@ -1,4 +1,11 @@
 .worktrees/
 luckyx_automation/logs/
 luckyx_automation/.env
+.env
+*.env
 .DS_Store
+__pycache__/
+*.pyc
+*.pyo
+luckyx_automation/assets/metamask-extension/
+luckyx_chrome_*

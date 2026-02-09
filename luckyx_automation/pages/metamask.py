@@ -4,7 +4,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from luckyx_automation.config import settings
-from luckyx_automation.core.decorators import TaskContext, robust_step
+from luckyx_automation.core.decorators import TaskContext, robust_step, _sanitize_message
 
 ALLOWED_SRP_WORD_COUNTS = (12, 15, 18, 21, 24)
 SRP_WORD_PATTERN = re.compile(r"\w+", flags=re.UNICODE)
@@ -18,110 +18,25 @@ class MetaMaskController:
         self.logger = context.logger
 
     def _discover_extension_id_from_windows(self) -> str:
-        original = None
-        try:
-            original = self.driver.current_window_handle
-        except Exception:
-            original = None
-
-        candidates = []
-        for handle in list(getattr(self.driver, "window_handles", []) or []):
-            try:
-                self.driver.switch_to.window(handle)
-                url = (self.driver.current_url or "").strip()
-                title = (self.driver.title or "").strip().lower()
-                if not url.startswith("chrome-extension://"):
-                    continue
-                ext_id = url.split("chrome-extension://", 1)[1].split("/", 1)[0].strip().lower()
-                if not ext_id:
-                    continue
-                score = 0
-                if "metamask" in title:
-                    score += 5
-                if "/home.html" in url.lower():
-                    score += 3
-                if "#onboarding" in url.lower() or "#initialize" in url.lower() or "#unlock" in url.lower():
-                    score += 2
-                candidates.append((score, ext_id))
-            except Exception:
-                continue
-
-        if original:
-            try:
-                self.driver.switch_to.window(original)
-            except Exception:
-                pass
-
-        if not candidates:
-            return ""
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        best = candidates[0]
-        if best[0] <= 0:
-            return ""
-        return best[1]
-
-    def _discover_extension_id_from_chrome_extensions(self) -> str:
-        try:
-            self.driver.get("chrome://extensions/")
-            candidates = self.driver.execute_script(
-                """
-                const out = [];
-                const visited = new Set();
-                const queue = [document];
-
-                function safeText(el) {
-                  try { return (el && (el.innerText || el.textContent) || '').trim(); } catch { return ''; }
-                }
-
-                while (queue.length) {
-                  const root = queue.shift();
-                  if (!root || visited.has(root)) continue;
-                  visited.add(root);
-
-                  let items = [];
-                  try { items = Array.from(root.querySelectorAll ? root.querySelectorAll('extensions-item') : []); } catch {}
-                  for (const item of items) {
-                    try {
-                      const id = (item.getAttribute('id') || '').trim();
-                      const nameEl = item.shadowRoot ? item.shadowRoot.querySelector('#name') : null;
-                      const name = safeText(nameEl) || safeText(item);
-                      if (id && name) out.push({ id, name });
-                    } catch {}
-                  }
-
-                  let all = [];
-                  try { all = Array.from(root.querySelectorAll ? root.querySelectorAll('*') : []); } catch {}
-                  for (const el of all) {
-                    try {
-                      if (el && el.shadowRoot) queue.push(el.shadowRoot);
-                    } catch {}
-                  }
-                }
-
-                return out;
-                """
-            )
-            for item in (candidates or []):
-                name = (item.get("name") or "").strip().lower()
-                ext_id = (item.get("id") or "").strip().lower()
-                if "metamask" in name and ext_id:
-                    return ext_id
-        except Exception:
-            pass
-        return ""
+        from luckyx_automation.core.driver import DriverFactory
+        return DriverFactory.discover_extension_id(self.driver, self.logger)
 
     def _metamask_base_url(self):
-        ext_id = (settings.METAMASK_EXTENSION_ID or "").strip()
+        ext_id = (self.context.metamask_extension_id or "").strip()
+        if not ext_id:
+            ext_id = (settings.METAMASK_EXTENSION_ID or "").strip()
+
         if ext_id:
             return f"chrome-extension://{ext_id}/home.html"
-        discovered = self._discover_extension_id_from_chrome_extensions()
+            
+        # Fallback to driver-side discovery if still missing
+        from luckyx_automation.core.driver import DriverFactory
+        discovered = DriverFactory.discover_extension_id(self.driver, self.logger)
+        
         if discovered:
-            settings.METAMASK_EXTENSION_ID = discovered
+            self.context.metamask_extension_id = discovered
             return f"chrome-extension://{discovered}/home.html"
-        discovered = self._discover_extension_id_from_windows()
-        if discovered:
-            settings.METAMASK_EXTENSION_ID = discovered
-            return f"chrome-extension://{discovered}/home.html"
+            
         return None
 
     def _cfg(self):
@@ -170,7 +85,7 @@ class MetaMaskController:
     def _switch_to_metamask_window(self, timeout=20):
         start = time.time()
         original = self.driver.current_window_handle
-        ext_id = (settings.METAMASK_EXTENSION_ID or "").strip().lower()
+        ext_id = (self.context.metamask_extension_id or settings.METAMASK_EXTENSION_ID or "").strip().lower()
         while time.time() - start < timeout:
             for handle in list(self.driver.window_handles):
                 try:
@@ -455,8 +370,9 @@ class MetaMaskController:
             self.open_metamask("#initialize/welcome")
         self.open_metamask("#unlock")
 
-        if not settings.METAMASK_EXTENSION_ID:
-            self.open_metamask("#onboarding/welcome")
+        if not self.context.metamask_extension_id:
+            if not settings.METAMASK_EXTENSION_ID:
+                self.open_metamask("#onboarding/welcome")
 
         if not self._switch_to_metamask_window(timeout=40):
             raise RuntimeError("MetaMask window not found during setup.")
@@ -507,7 +423,7 @@ class MetaMaskController:
             try:
                 self.import_account_private_key(pk)
             except Exception as e:
-                self.logger.warning(f"Failed to import account by private key: {e}")
+                self.logger.warning(f"Failed to import account by private key: {_sanitize_message(str(e))}")
 
         self.logger.info("MetaMask setup complete.")
 

@@ -2,12 +2,15 @@ import csv
 import json
 import re
 import requests
+import shutil
+import tempfile
 import time
 import traceback
 import urllib.parse
+from pathlib import Path
 from luckyx_automation.core.driver import DriverFactory
 from luckyx_automation.core.logger import LoggerSetup, get_run_id
-from luckyx_automation.core.decorators import TaskContext, AccountConfig
+from luckyx_automation.core.decorators import TaskContext, AccountConfig, _sanitize_message
 from luckyx_automation.pages.metamask import MetaMaskController
 from luckyx_automation.pages.luckyx_page import LuckyXPage
 from luckyx_automation.config import settings
@@ -106,7 +109,9 @@ def _extract_proxy_from_text(raw: str) -> str:
 
     return text
 
-def _extract_proxy_from_json(obj) -> str:
+def _extract_proxy_from_json(obj, depth=0) -> str:
+    if depth > 10:
+        return ""
     if obj is None:
         return ""
     if isinstance(obj, str):
@@ -115,7 +120,7 @@ def _extract_proxy_from_json(obj) -> str:
         return ""
     if isinstance(obj, list):
         for item in obj:
-            proxy = _extract_proxy_from_json(item)
+            proxy = _extract_proxy_from_json(item, depth + 1)
             if proxy:
                 return proxy
         return ""
@@ -148,7 +153,7 @@ def _extract_proxy_from_json(obj) -> str:
                 return proxy
 
         for v in obj.values():
-            proxy = _extract_proxy_from_json(v)
+            proxy = _extract_proxy_from_json(v, depth + 1)
             if proxy:
                 return proxy
         return ""
@@ -168,38 +173,65 @@ def _fetch_proxy_from_pool(logger) -> str:
                         headers[str(k)] = str(v)
         except Exception as e:
             logger.warning(f"Invalid PROXY_POOL_HEADERS_JSON: {e}")
-    try:
-        resp = requests.get(url, headers=headers or None, timeout=settings.PROXY_POOL_TIMEOUT)
-    except Exception as e:
-        raise RuntimeError(f"Proxy pool request failed: {e}") from e
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Proxy pool API HTTP {resp.status_code}.")
-    raw = (resp.text or "").strip()
-    if not raw:
-        raise RuntimeError("Proxy pool API returned empty response.")
-    try:
-        data = resp.json()
-        proxy = _canonical_proxy(_extract_proxy_from_json(data))
-        if proxy:
-            return proxy
-    except Exception:
-        pass
-    try:
-        data = json.loads(raw)
-        proxy = _canonical_proxy(_extract_proxy_from_json(data))
-        if proxy:
-            return proxy
-    except Exception:
-        pass
-    proxy = _canonical_proxy(_extract_proxy_from_text(raw))
-    if not proxy:
-        raise RuntimeError("Proxy pool API returned empty proxy after parsing.")
-    return proxy
+    
+    last_err = None
+    for attempt in range(3):
+        try:
+            resp = requests.get(
+                url, 
+                headers=headers or None, 
+                timeout=settings.PROXY_POOL_TIMEOUT,
+                verify=True
+            )
+            if resp.status_code >= 400:
+                raise RuntimeError(f"Proxy pool API HTTP {resp.status_code}.")
+            
+            raw = (resp.text or "").strip()
+            if not raw:
+                raise RuntimeError("Proxy pool API returned empty response.")
+            
+            try:
+                data = resp.json()
+                proxy = _canonical_proxy(_extract_proxy_from_json(data))
+                if proxy:
+                    return proxy
+            except Exception:
+                pass
+            
+            try:
+                data = json.loads(raw)
+                proxy = _canonical_proxy(_extract_proxy_from_json(data))
+                if proxy:
+                    return proxy
+            except Exception:
+                pass
+                
+            proxy = _canonical_proxy(_extract_proxy_from_text(raw))
+            if proxy:
+                return proxy
+            
+            raise RuntimeError("Proxy pool API returned empty proxy after parsing.")
+            
+        except Exception as e:
+            last_err = e
+            logger.warning(f"Proxy pool request failed (Attempt {attempt+1}/3): {e}")
+            time.sleep(1)
+
+    raise RuntimeError(f"Proxy pool request failed after 3 attempts: {last_err}") from last_err
 
 def _load_accounts(logger):
     accounts = []
+    _ACCOUNTS_JSON_MAX_LEN = 10 * 1024 * 1024  # 10 MB
+    _ACCOUNT_STR_FIELDS = (
+        "label", "proxy", "metamask_password", "metamask_seed_phrase",
+        "metamask_private_key", "email_account", "email_password",
+        "email_imap_server", "invite_code",
+    )
     if settings.ACCOUNTS_JSON.strip():
-        parsed = json.loads(settings.ACCOUNTS_JSON)
+        raw_json = settings.ACCOUNTS_JSON.strip()
+        if len(raw_json) > _ACCOUNTS_JSON_MAX_LEN:
+            raise ValueError(f"ACCOUNTS_JSON exceeds {_ACCOUNTS_JSON_MAX_LEN} bytes limit.")
+        parsed = json.loads(raw_json)
         if isinstance(parsed, dict):
             parsed = [parsed]
         if not isinstance(parsed, list):
@@ -207,6 +239,10 @@ def _load_accounts(logger):
         for i, item in enumerate(parsed):
             if not isinstance(item, dict):
                 continue
+            for field in _ACCOUNT_STR_FIELDS:
+                val = item.get(field)
+                if val is not None and not isinstance(val, str):
+                    raise ValueError(f"Account #{i+1} field '{field}' must be a string, got {type(val).__name__}.")
             accounts.append(
                 AccountConfig(
                     label=str(item.get("label") or f"acc{i+1}"),
@@ -224,7 +260,12 @@ def _load_accounts(logger):
 
     accounts_file = (settings.ACCOUNTS_FILE or "").strip()
     if accounts_file:
-        with open(accounts_file, "r", encoding="utf-8-sig", newline="") as f:
+        accounts_path = Path(accounts_file).resolve()
+        if not accounts_path.is_file():
+            raise FileNotFoundError(f"ACCOUNTS_FILE not found: {accounts_path}")
+        if ".." in Path(accounts_file).parts:
+            raise ValueError(f"ACCOUNTS_FILE must not contain '..': {accounts_file}")
+        with open(str(accounts_path), "r", encoding="utf-8-sig", newline="") as f:
             reader = csv.DictReader(f)
             for i, row in enumerate(reader):
                 if not row:
@@ -294,7 +335,10 @@ def _run_one_account(group_dir, group_id, index: int, cfg: AccountConfig):
     context = TaskContext(run_id, log_dir, screenshots_dir, logger, config=cfg)
     try:
         proxy = _resolve_proxy(logger, cfg)
-        context.driver = DriverFactory.create_driver(logger, proxy=proxy)
+        driver, ext_id, profile_dir = DriverFactory.create_driver(logger, proxy=proxy)
+        context.driver = driver
+        context.metamask_extension_id = ext_id
+        context.chrome_profile_dir = profile_dir
 
         mm = MetaMaskController(context)
         mm.setup_wallet()
@@ -313,8 +357,8 @@ def _run_one_account(group_dir, group_id, index: int, cfg: AccountConfig):
         logger.info("=== Account Run Completed Successfully ===")
         time.sleep(2)
     except Exception as e:
-        logger.critical(f"Unhandled Exception: {e}")
-        logger.debug(traceback.format_exc())
+        logger.critical(f"Unhandled Exception: {_sanitize_message(str(e))}")
+        logger.debug(_sanitize_message(traceback.format_exc()))
         if context.driver:
             context.capture_screenshot("CRITICAL_FAILURE")
         raise
@@ -325,6 +369,14 @@ def _run_one_account(group_dir, group_id, index: int, cfg: AccountConfig):
                 context.driver.quit()
             except Exception:
                 pass
+            # Clean up temporary Chrome profile directory
+            profile = getattr(context, 'chrome_profile_dir', None)
+            if profile and profile.exists() and str(profile).startswith(str(Path(tempfile.gettempdir()))):
+                try:
+                    shutil.rmtree(profile, ignore_errors=True)
+                    logger.debug(f"Cleaned up temp profile: {profile}")
+                except Exception:
+                    pass
 
 def main():
     group_id = get_run_id()

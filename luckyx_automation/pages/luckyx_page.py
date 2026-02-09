@@ -53,8 +53,9 @@ class LuckyXPage:
         connect_btn.click()
         
         # 2. Select "MetaMask" from modal
+        # Use a more specific selector to avoid clicking container/body text
         mm_option = self.wait.until(EC.element_to_be_clickable(
-            (By.XPATH, "//*[contains(., 'MetaMask') or contains(., 'METAMASK') or contains(., 'metamask')]")
+            (By.XPATH, "//div[contains(text(), 'MetaMask') or contains(text(), 'METAMASK')] | //span[contains(text(), 'MetaMask')] | //button[contains(., 'MetaMask')]")
         ))
         mm_option.click()
         

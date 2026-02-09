@@ -1,4 +1,5 @@
 import functools
+import re
 import time
 import traceback
 from dataclasses import dataclass
@@ -6,6 +7,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable
 import logging
+
+_SEED_PHRASE_RE = re.compile(
+    r'\b(?:[a-z]{2,10}\s+){11,23}[a-z]{2,10}\b', flags=re.IGNORECASE
+)
+_HEX_KEY_RE = re.compile(r'\b(?:0x)?[0-9a-fA-F]{64}\b')
+
+def _sanitize_message(text: str) -> str:
+    text = _SEED_PHRASE_RE.sub('[REDACTED_SEED_PHRASE]', text)
+    text = _HEX_KEY_RE.sub('[REDACTED_KEY]', text)
+    return text
 
 @dataclass(frozen=True)
 class AccountConfig:
@@ -30,6 +41,8 @@ class TaskContext:
         self.driver = None # Will be set later
         self.logger = logger
         self.config = config
+        self.metamask_extension_id: Optional[str] = None
+        self.chrome_profile_dir: Optional[Path] = None
 
     def capture_screenshot(self, name: str):
         """Captures a screenshot with timestamp."""
@@ -65,7 +78,7 @@ def robust_step(max_retries: int = 3, delay: int = 2, screenshot_on_fail: bool =
                     return func(self, *args, **kwargs)
                 except Exception as e:
                     last_exception = e
-                    logger.warning(f"Step '{func.__name__}' failed (Attempt {attempt}/{max_retries}): {e}")
+                    logger.warning(f"Step '{func.__name__}' failed (Attempt {attempt}/{max_retries}): {_sanitize_message(str(e))}")
                     
                     if screenshot_on_fail and context:
                         context.capture_screenshot(f"fail_{func.__name__}_attempt_{attempt}")
@@ -74,7 +87,7 @@ def robust_step(max_retries: int = 3, delay: int = 2, screenshot_on_fail: bool =
                         time.sleep(delay)
                     else:
                         logger.error(f"Step '{func.__name__}' failed permanently after {max_retries} attempts.")
-                        logger.debug(traceback.format_exc())
+                        logger.debug(_sanitize_message(traceback.format_exc()))
             
             # If we reach here, re-raise the last exception
             raise last_exception
