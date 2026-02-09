@@ -449,7 +449,7 @@ class MetaMaskController:
                 
                 self.logger.info("Wallet connected successfully.")
             except Exception as e:
-                self.logger.error(f"Error connecting wallet: {e}")
+                self.logger.error(f"Error connecting wallet: {_sanitize_message(str(e))}")
                 raise
             finally:
                 self.driver.switch_to.window(main_window)
@@ -480,7 +480,7 @@ class MetaMaskController:
                 
                 self.logger.info("Message signed successfully.")
             except Exception as e:
-                self.logger.error(f"Error signing message: {e}")
+                self.logger.error(f"Error signing message: {_sanitize_message(str(e))}")
                 raise
             finally:
                 self.driver.switch_to.window(main_window)

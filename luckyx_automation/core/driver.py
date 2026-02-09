@@ -9,6 +9,7 @@ import subprocess
 import re
 from pathlib import Path
 from luckyx_automation.config import settings
+from luckyx_automation.core.decorators import _sanitize_message
 try:
     from capsolver_extension_python import Capsolver
 except ImportError:
@@ -341,5 +342,5 @@ class DriverFactory:
             
             return driver, ext_id, profile_dir
         except Exception as e:
-            logger.critical(f"Failed to start browser: {e}")
+            logger.critical(f"Failed to start browser: {_sanitize_message(str(e))}")
             raise

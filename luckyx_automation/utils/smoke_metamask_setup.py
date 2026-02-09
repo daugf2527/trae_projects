@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from luckyx_automation.config import settings
-from luckyx_automation.core.decorators import AccountConfig, TaskContext
+from luckyx_automation.core.decorators import AccountConfig, TaskContext, _sanitize_message
 from luckyx_automation.core.driver import DriverFactory
 from luckyx_automation.core.logger import LoggerSetup, get_run_id
 from luckyx_automation.pages.metamask import MetaMaskController
@@ -55,7 +55,7 @@ def main() -> int:
         time.sleep(2)
         return 0
     except Exception as e:
-        logger.critical(f"Smoke failed: {e}")
+        logger.critical(f"Smoke failed: {_sanitize_message(str(e))}")
         if context.driver:
             context.capture_screenshot("SMOKE_FAILED")
         return 1
