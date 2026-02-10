@@ -1,4 +1,4 @@
-import { ProxyConfig, ResolveProxyOptions } from './types.js'
+import type { ProxyConfig, ResolveProxyOptions } from './types.js'
 
 function isTruthy(value: unknown): boolean {
   if (value === null || value === undefined) return false

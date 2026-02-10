@@ -3,7 +3,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { parse } from 'csv-parse/sync'
 import dotenv from 'dotenv'
-import { AccountConfig } from './types.js'
+import type { AccountConfig } from './types.js'
 import { sanitizeLabel } from './utils.js'
 
 dotenv.config({ path: path.resolve(process.cwd(), '../luckyx_automation/.env') })

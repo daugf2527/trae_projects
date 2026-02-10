@@ -25,6 +25,7 @@
     "csv-parse": "^6.0.0",
     "dotenv": "^16.4.7",
     "imapflow": "^1.0.192",
+    "playwright": "^1.48.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3"
   },

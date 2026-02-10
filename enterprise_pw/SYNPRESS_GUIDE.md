@@ -20,6 +20,8 @@ METAMASK_PASSWORD=your_password
 METAMASK_SEED_PHRASE=your_seed_phrase
 # 可选
 PROXY=http://user:pass@host:port
+CAPSOLVER_API_KEY=your_capsolver_api_key
+CHALLENGE_WAIT_TIMEOUT_MS=180000
 ```
 
 ## 3. 钱包缓存生成（关键步骤）
