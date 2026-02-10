@@ -5,7 +5,7 @@ const env = ((globalThis as unknown as { process?: { env?: Record<string, string
 
 export default defineConfig({
   testDir: './tests',
-  timeout: 180_000,
+  timeout: 600_000, // 10 min - allows manual Turnstile solving
   outputDir: env.ARTIFACTS_DIR?.trim() || 'test-results',
   expect: {
     timeout: 30_000

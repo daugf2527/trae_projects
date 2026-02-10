@@ -184,11 +184,28 @@ async function capture(page: import('@playwright/test').Page, artifactsDir: stri
 }
 
 async function connectLuckyX(page: import('@playwright/test').Page, metamask: any): Promise<void> {
+<<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/luckyx.spec.ts
   console.log('Waiting for network idle...');
   await page.waitForLoadState('networkidle').catch(() => console.log('Network idle timeout'));
   
   const title = await page.title();
   console.log(`Page title: ${title}`);
+=======
+  console.log('Waiting for page load...');
+  await page.waitForLoadState('domcontentloaded').catch(() => {});
+  await page.waitForTimeout(3_000);
+  
+  const title = await page.title().catch(() => '');
+  console.log(`Page title: ${title}`);
+  if (!title || title === 'MetaMask') {
+    // Page might be dead or navigated to MetaMask - re-navigate to LuckyX
+    console.log('Page not on LuckyX, navigating to baseURL...');
+    await page.goto('/').catch(() => {});
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    await page.waitForTimeout(3_000);
+    console.log(`Page title after re-navigate: ${await page.title().catch(() => 'N/A')}`);
+  }
+>>>>>>> /Users/asd/.windsurf/worktrees/trae_projects/trae_projects-0cc80f3c/enterprise_pw/tests/luckyx.spec.ts
 
   // Debug: List all buttons
   const buttons = await page.getByRole('button').all();
@@ -307,8 +324,9 @@ async function jsonRpc(rpcUrl: string, method: string, params: unknown[]): Promi
 }
 
 async function waitForPossibleCloudflare(page: import('@playwright/test').Page): Promise<void> {
-  const timeoutMs = 90_000
+  const timeoutMs = 300_000 // 5 minutes - allows manual Turnstile solving
   const start = Date.now()
+  let logged = false
   while (Date.now() - start < timeoutMs) {
     const bodyText = (await page.locator('body').innerText().catch(() => '')).toLowerCase()
     const looksLikeChallenge =
@@ -316,10 +334,23 @@ async function waitForPossibleCloudflare(page: import('@playwright/test').Page):
       bodyText.includes('just a moment') ||
       bodyText.includes('cloudflare') ||
       bodyText.includes('验证') ||
-      bodyText.includes('正在检查')
-    if (!looksLikeChallenge) return
-    await page.waitForTimeout(2_000)
+      bodyText.includes('正在检查') ||
+      bodyText.includes('turnstile')
+    if (!looksLikeChallenge) {
+      if (logged) console.log('[Cloudflare] Challenge passed!')
+      return
+    }
+    if (!logged) {
+      console.log('[Cloudflare] Turnstile challenge detected. Please solve it manually in the browser window...')
+      console.log('[Cloudflare] Waiting up to 5 minutes for challenge to be solved...')
+      logged = true
+    }
+    // Try clicking the Turnstile checkbox if visible
+    const turnstileFrame = page.frameLocator('iframe[src*="challenges.cloudflare.com"]').first()
+    await turnstileFrame.locator('input[type="checkbox"], .ctp-checkbox-label').first().click({ timeout: 1_000 }).catch(() => {})
+    await page.waitForTimeout(3_000)
   }
+  console.log('[Cloudflare] Challenge timeout after 5 minutes')
 }
 
 async function tryDailyCheckIn(page: import('@playwright/test').Page): Promise<void> {

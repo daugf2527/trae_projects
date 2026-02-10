@@ -192,6 +192,39 @@ export function metaMaskFixturesWithProxy(
           if (await unlockInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
             await unlockForFixture(metamaskPage, walletPassword)
           }
+<<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
+=======
+          
+          // Handle "Your wallet is ready" page - click "Open wallet"
+          const openWalletBtn = metamaskPage.locator('button').filter({ hasText: /open wallet|打开钱包|进入钱包/i }).first()
+          if (await openWalletBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+            console.log('[Fixture] Found "Open wallet" button, waiting for it to become enabled...')
+            // Wait up to 30s for button to become enabled
+            for (let i = 0; i < 60; i++) {
+              const disabled = await openWalletBtn.isDisabled().catch(() => true)
+              if (!disabled) {
+                console.log(`[Fixture] "Open wallet" enabled after ${i * 500}ms`)
+                break
+              }
+              if (i % 10 === 0 && i > 0) console.log(`[Fixture] Still waiting for "Open wallet" to enable... (${i * 500}ms)`)
+              await metamaskPage.waitForTimeout(500)
+            }
+            await openWalletBtn.click().catch(async () => {
+              console.log('[Fixture] Normal click failed, trying force click...')
+              await openWalletBtn.click({ force: true }).catch(() => {})
+            })
+            await metamaskPage.waitForTimeout(3_000)
+          }
+          
+          // Handle any "What's new" / "Pin extension" popover
+          const popoverClose = metamaskPage.getByTestId('popover-close').first()
+          if (await popoverClose.isVisible({ timeout: 3_000 }).catch(() => false)) {
+            await popoverClose.click().catch(() => {})
+            await metamaskPage.waitForTimeout(1_000)
+          }
+          
+          console.log('[Fixture] Wallet setup sequence completed')
+>>>>>>> /Users/asd/.windsurf/worktrees/trae_projects/trae_projects-0cc80f3c/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
 
           const traceStarted = await context.tracing
             .start({ screenshots: true, snapshots: true, sources: true })
@@ -288,6 +321,7 @@ async function launchPersistentContextForRun(input: {
   await cp(input.cacheDirPath, input.contextPath, { recursive: true, force: true })
 
   const metamaskPath = await prepareExtension()
+<<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
   const extensionsForDisable = [metamaskPath]
   const capsolverPath = await prepareCapsolverExtension(input.contextPath, input.proxy)
   if (capsolverPath) {
@@ -298,6 +332,36 @@ async function launchPersistentContextForRun(input: {
   if (capsolverPath) {
     browserArgs.push(`--load-extension=${capsolverPath}`)
   }
+=======
+  const capsolverPath = await prepareCapsolverExtension(input.contextPath, input.proxy)
+
+  // MetaMask is already in persistent context from cache, only CapSolver needs --load-extension
+  const disableExcept = [metamaskPath]
+  if (capsolverPath) disableExcept.push(capsolverPath)
+
+  console.log('[Launch] Extensions:', disableExcept.map(p => path.basename(p)).join(', '))
+
+  const browserArgs = [
+    `--disable-extensions-except=${disableExcept.join(',')}`,
+    `--lang=${input.locale}`,
+    // Anti-detection flags to help with Cloudflare Turnstile
+    '--disable-blink-features=AutomationControlled',
+    '--disable-features=AutomationControlled',
+    '--disable-infobars',
+    '--no-first-run',
+    '--no-default-browser-check'
+  ]
+<<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
+<<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
+  console.log('[Launch] Browser args:', browserArgs.join(' '))
+>>>>>>> /Users/asd/.windsurf/worktrees/trae_projects/trae_projects-0cc80f3c/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
+=======
+>>>>>>> /Users/asd/.windsurf/worktrees/trae_projects/trae_projects-0cc80f3c/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
+=======
+  if (capsolverPath) {
+    browserArgs.push(`--load-extension=${capsolverPath}`)
+  }
+>>>>>>> /Users/asd/.windsurf/worktrees/trae_projects/trae_projects-0cc80f3c/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
 
   if (process.env.HEADLESS) {
     browserArgs.push('--headless=new')

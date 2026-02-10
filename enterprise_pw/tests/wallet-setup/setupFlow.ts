@@ -124,6 +124,24 @@ async function importWalletFromSeedPhrase(page: Page, password: string, seedPhra
   if (await done.isVisible({ timeout: 8_000 }).catch(() => false)) {
     await done.click().catch(() => {})
   }
+
+  // Handle "Your wallet is ready" → "Open wallet" / "Got it" page (newer MetaMask versions)
+  const openWalletBtn = page.locator('button').filter({ hasText: /open wallet|got it|done|完成|打开钱包|进入钱包/i }).first()
+  if (await openWalletBtn.isVisible({ timeout: 8_000 }).catch(() => false)) {
+    // Wait for button to become enabled (may be disabled initially)
+    for (let i = 0; i < 20; i++) {
+      if (await openWalletBtn.isEnabled().catch(() => false)) break
+      await page.waitForTimeout(500)
+    }
+    await openWalletBtn.click().catch(() => {})
+    await page.waitForTimeout(2_000)
+  }
+
+  // Handle any "What's new" or "Pin extension" popover after opening wallet
+  await clickAny(page, [
+    () => page.getByTestId('popover-close').first(),
+    () => page.locator('button').filter({ hasText: /got it|close|关闭|知道了/i }).first()
+  ])
 }
 
 async function clickAny(page: Page, locators: Array<() => ReturnType<Page['locator']>>): Promise<boolean> {
