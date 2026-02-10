@@ -347,10 +347,14 @@ def _run_one_account(group_dir, group_id, index: int, cfg: AccountConfig):
         lucky = LuckyXPage(context)
         lucky.open()
         lucky.connect_wallet()
-        lucky.daily_checkin()
+        checkin_ok = lucky.daily_checkin()
+        if not checkin_ok:
+            logger.info("Daily check-in skipped or failed.")
 
         if cfg.email_account and cfg.email_password:
-            lucky.bind_email()
+            email_ok = lucky.bind_email()
+            if not email_ok:
+                raise RuntimeError("Email binding failed while email credentials are configured.")
         else:
             logger.info("Skipping Email Binding (Credentials not set)")
 

@@ -1,13 +1,26 @@
 import path from 'node:path'
 import { chromium, test as base, type BrowserContext, type Page } from '@playwright/test'
 import { access, cp, mkdir, rm, readFile, writeFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
+import dotenv from 'dotenv'
 import * as synpressCache from '@synthetixio/synpress-cache'
 import * as synpressMetaMask from '@synthetixio/synpress-metamask/playwright'
 import { resolveProxyForAccount } from '../../src/proxy.js'
 import type { ProxyConfig } from '../../src/types.js'
 import { sanitizeLabel } from '../../src/utils.js'
 
-const CAPSOLVER_EXTENSION_PATH = path.join(process.cwd(), 'extensions', 'capsolver')
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+const CAPSOLVER_EXTENSION_PATHS = [
+  path.join(process.cwd(), 'extensions', 'capsolver'),
+  path.join(process.cwd(), 'enterprise_pw', 'extensions', 'capsolver'),
+  path.resolve(__dirname, '../../extensions/capsolver')
+]
+
+dotenv.config({ path: path.resolve(process.cwd(), '../luckyx_automation/.env') })
+dotenv.config()
+
 const RESOLVED_PROXY = Symbol('resolved_proxy')
 const TRACE_STARTED = Symbol('trace_started')
 const METAMASK_PAGE = Symbol('metamask_page')
@@ -24,13 +37,21 @@ function getBrowserLocale(): string {
   return (process.env.BROWSER_LOCALE ?? 'en-US').trim() || 'en-US'
 }
 
+function isTruthyEnv(value: string | undefined): boolean {
+  const normalized = (value ?? '').trim().toLowerCase()
+  return ['1', 'true', 'yes', 'on'].includes(normalized)
+}
+
 async function getCapsolverPath(): Promise<string | null> {
-  try {
-    await access(CAPSOLVER_EXTENSION_PATH)
-    return CAPSOLVER_EXTENSION_PATH
-  } catch {
-    return null
+  for (const candidate of CAPSOLVER_EXTENSION_PATHS) {
+    try {
+      await access(candidate)
+      return candidate
+    } catch {
+      // try next candidate
+    }
   }
+  return null
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -55,22 +76,14 @@ async function prepareCapsolverExtension(
 
   const apiKey = (process.env.CAPSOLVER_API_KEY ?? '').trim()
   const proxyServer = (proxy?.server ?? '').trim()
-<<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
-  if (!apiKey && !proxyServer) return tempPath
-=======
-  console.log('[CapSolver] API Key configured:', apiKey ? `Yes (${apiKey.slice(0, 8)}...)` : 'No')
-  console.log('[CapSolver] Proxy configured:', proxyServer ? 'Yes' : 'No')
-  if (!apiKey) {
-    console.log('[CapSolver] No API key - skipping CapSolver extension (set CAPSOLVER_API_KEY to enable)')
-    return null
-  }
->>>>>>> /Users/asd/.windsurf/worktrees/trae_projects/trae_projects-0cc80f3c/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
 
   const configPath = path.join(tempPath, 'assets', 'config.js')
   try {
     const content = await readFile(configPath, 'utf-8')
     let next = content
-    if (apiKey) next = next.replace(/apiKey:\s*['"][^'"]*['"]/, `apiKey: '${apiKey}'`)
+    if (apiKey) {
+      next = next.replace(/apiKey:\s*['"][^'"]*['"]/, `apiKey: '${apiKey}'`)
+    }
 
     if (proxyServer) {
       const url = new URL(proxyServer)
@@ -147,6 +160,86 @@ async function getExtensionIdWithRetry(context: BrowserContext, extensionName: s
   }
   console.log(`[getExtensionId] Found ${extensionName} with ID: ${target.id}`)
   return target.id
+}
+
+async function listExtensions(context: BrowserContext): Promise<Array<{ id: string; name: string }>> {
+  const page = await context.newPage()
+  try {
+    await page.goto('chrome://extensions')
+    await page.waitForTimeout(600)
+    const result = await page.evaluate(`
+      (typeof chrome !== 'undefined' && chrome.management && typeof chrome.management.getAll === 'function')
+        ? chrome.management.getAll()
+        : []
+    `)
+    if (!result || !Array.isArray(result)) return []
+    return result.map((item) => ({ id: String(item.id ?? ''), name: String(item.name ?? '') }))
+  } catch {
+    return []
+  } finally {
+    await page.close().catch(() => {})
+  }
+}
+
+async function ensureMetaMaskUnlocked(page: Page, walletPassword: string): Promise<void> {
+  if (!walletPassword.trim()) return
+  if (!(await looksLikeMetaMaskUnlock(page))) return
+
+  await unlockForFixture(page, walletPassword).catch(() => {})
+  await page.waitForTimeout(500)
+  if (!(await looksLikeMetaMaskUnlock(page))) return
+
+  const passwordInputCandidates = [
+    page.getByTestId('unlock-password').first(),
+    page.locator('input[type="password"]').first(),
+    page.getByPlaceholder(/password|密码/i).first()
+  ]
+
+  let filled = false
+  for (const candidate of passwordInputCandidates) {
+    const visible = await candidate.isVisible().catch(() => false)
+    if (!visible) continue
+    await candidate.fill(walletPassword).catch(() => {})
+    filled = true
+    break
+  }
+
+  const unlockButtonCandidates = [
+    page.getByTestId('unlock-submit').first(),
+    page.getByRole('button', { name: /unlock|log in|login|登录|解锁/i }).first(),
+    page.locator('button[type="submit"]').first()
+  ]
+
+  for (const candidate of unlockButtonCandidates) {
+    const visible = await candidate.isVisible().catch(() => false)
+    if (!visible) continue
+    const enabled = await candidate.isEnabled().catch(() => true)
+    if (!enabled) continue
+    await candidate.click({ timeout: 3_000 }).catch(() => {})
+    break
+  }
+
+  await page.waitForTimeout(1_000)
+  if (await looksLikeMetaMaskUnlock(page)) {
+    throw new Error(
+      [
+        'MetaMask 仍处于解锁页，自动解锁失败。',
+        `password_input_filled=${filled ? 'yes' : 'no'}`,
+        '请确认 METAMASK_PASSWORD 与钱包缓存一致（必要时执行 npm --prefix enterprise_pw run wallet:cache:force 重新生成）。'
+      ].join('\n')
+    )
+  }
+}
+
+async function looksLikeMetaMaskUnlock(page: Page): Promise<boolean> {
+  const url = page.url().toLowerCase()
+  if (url.includes('/unlock') || url.includes('onboarding/unlock')) return true
+
+  const passwordInput = await page.locator('input[type="password"]').first().isVisible().catch(() => false)
+  if (!passwordInput) return false
+
+  const bodyText = await page.locator('body').innerText().catch(() => '')
+  return /forgot password|unlock|log in|login|忘记密码|登录|解锁/i.test(bodyText)
 }
 
 const { unlockForFixture, MetaMask: MetaMaskClass } = synpressMetaMask as unknown as {
@@ -233,47 +326,40 @@ export function metaMaskFixturesWithProxy(
           })
 
           const extensionId = await getExtensionIdWithRetry(context, 'MetaMask')
+          const loadedExtensions = await listExtensions(context)
+          const hasCapsolver = loadedExtensions.some((item) => /capsolver|captcha solver/i.test(item.name))
+          console.log(`[Extensions] ${loadedExtensions.map((item) => item.name).join(', ')}`)
+          if (!hasCapsolver) {
+            console.warn('[CapSolver] extension is not listed in chrome.management')
+          }
           const metamaskPage = (context.pages()[0] as Page | undefined) ?? (await context.newPage())
           await metamaskPage.goto(`chrome-extension://${extensionId}/home.html`)
           await metamaskPage.waitForLoadState('domcontentloaded')
+          await ensureMetaMaskUnlocked(metamaskPage, walletPassword)
 
-          const unlockInput = metamaskPage.getByTestId('unlock-password').first()
-          if (await unlockInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-            await unlockForFixture(metamaskPage, walletPassword)
-          }
-<<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
-=======
-          
           // Handle "Your wallet is ready" page - click "Open wallet"
           const openWalletBtn = metamaskPage.locator('button').filter({ hasText: /open wallet|打开钱包|进入钱包/i }).first()
           if (await openWalletBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-            console.log('[Fixture] Found "Open wallet" button, waiting for it to become enabled...')
-            // Wait up to 30s for button to become enabled
+            // Wait up to 30s for the button to be enabled before click.
             for (let i = 0; i < 60; i++) {
               const disabled = await openWalletBtn.isDisabled().catch(() => true)
               if (!disabled) {
-                console.log(`[Fixture] "Open wallet" enabled after ${i * 500}ms`)
                 break
               }
-              if (i % 10 === 0 && i > 0) console.log(`[Fixture] Still waiting for "Open wallet" to enable... (${i * 500}ms)`)
               await metamaskPage.waitForTimeout(500)
             }
             await openWalletBtn.click().catch(async () => {
-              console.log('[Fixture] Normal click failed, trying force click...')
               await openWalletBtn.click({ force: true }).catch(() => {})
             })
             await metamaskPage.waitForTimeout(3_000)
           }
-          
+
           // Handle any "What's new" / "Pin extension" popover
           const popoverClose = metamaskPage.getByTestId('popover-close').first()
           if (await popoverClose.isVisible({ timeout: 3_000 }).catch(() => false)) {
             await popoverClose.click().catch(() => {})
             await metamaskPage.waitForTimeout(1_000)
           }
-          
-          console.log('[Fixture] Wallet setup sequence completed')
->>>>>>> /Users/asd/.windsurf/worktrees/trae_projects/trae_projects-0cc80f3c/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
 
           const traceStarted = await context.tracing
             .start({ screenshots: true, snapshots: true, sources: true })
@@ -370,51 +456,33 @@ async function launchPersistentContextForRun(input: {
   await cp(input.cacheDirPath, input.contextPath, { recursive: true, force: true })
 
   const metamaskPath = await prepareExtension()
-<<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
-  const extensionsForDisable = [metamaskPath]
   const capsolverPath = await prepareCapsolverExtension(input.contextPath, input.proxy)
-  if (capsolverPath) {
-    extensionsForDisable.push(capsolverPath)
-  }
+  const capsolverApiKey = (process.env.CAPSOLVER_API_KEY ?? '').trim()
 
-  const browserArgs = [`--disable-extensions-except=${extensionsForDisable.join(',')}`, `--lang=${input.locale}`]
-  if (capsolverPath) {
-    browserArgs.push(`--load-extension=${capsolverPath}`)
-  }
-=======
-  const capsolverPath = await prepareCapsolverExtension(input.contextPath, input.proxy)
-
-  // MetaMask is already in persistent context from cache, only CapSolver needs --load-extension
   const disableExcept = [metamaskPath]
   if (capsolverPath) disableExcept.push(capsolverPath)
-
-  console.log('[Launch] Extensions:', disableExcept.map(p => path.basename(p)).join(', '))
 
   const browserArgs = [
     `--disable-extensions-except=${disableExcept.join(',')}`,
     `--lang=${input.locale}`
   ]
-<<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
-<<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
-  console.log('[Launch] Browser args:', browserArgs.join(' '))
->>>>>>> /Users/asd/.windsurf/worktrees/trae_projects/trae_projects-0cc80f3c/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
-=======
->>>>>>> /Users/asd/.windsurf/worktrees/trae_projects/trae_projects-0cc80f3c/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
-=======
   if (capsolverPath) {
     browserArgs.push(`--load-extension=${capsolverPath}`)
+  } else {
+    console.warn(`[CapSolver] extension path not found; checked: ${CAPSOLVER_EXTENSION_PATHS.join(', ')}`)
   }
->>>>>>> /Users/asd/.windsurf/worktrees/trae_projects/trae_projects-0cc80f3c/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
+  console.log(`[CapSolver] extension=${capsolverPath ? 'loaded' : 'missing'} apiKey=${capsolverApiKey ? 'set' : 'empty'}`)
 
-  if (process.env.HEADLESS) {
+  const headlessMode = isTruthyEnv(process.env.HEADLESS)
+  if (headlessMode) {
     browserArgs.push('--headless=new')
     if (input.slowMo > 0) console.warn('[WARNING] Slow motion will be ignored in headless mode.')
   }
 
   const context = await chromium.launchPersistentContext(input.contextPath, {
-    headless: false,
+    headless: headlessMode,
     args: browserArgs,
-    slowMo: process.env.HEADLESS ? 0 : input.slowMo,
+    slowMo: headlessMode ? 0 : input.slowMo,
     proxy: input.proxy,
     locale: input.locale
   })

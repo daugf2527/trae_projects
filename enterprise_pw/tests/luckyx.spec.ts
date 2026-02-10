@@ -9,6 +9,18 @@ import { resolveProxyForAccount } from '../src/proxy.js'
 import { metaMaskFixturesWithProxy } from './fixtures/metaMaskFixturesWithProxy.js'
 import type { ProxyConfig } from '../src/types.js'
 import { walletSetupByLabel } from '../wallet-setup/generated/index.js'
+import {
+  detectChallengeSignals,
+  getConnectButtonNamePatterns,
+  getLoginButtonNamePatterns,
+  looksLikeMigrationModal
+} from '../src/luckyxSignals.js'
+
+type StepStatus = {
+  attempted: boolean
+  success: boolean
+  reason: string
+}
 
 let accounts: ReturnType<typeof loadAccounts> = []
 let accountsLoadError: unknown
@@ -51,14 +63,21 @@ for (const account of accounts) {
     const address = await metamask.getAccountAddress()
     expect(address).toMatch(/^0x[a-fA-F0-9]{40}$/)
 
-    await runStep(artifactsDir, 'daily_check_in', async () => tryDailyCheckIn(page))
-    await runStep(artifactsDir, 'bind_email', async () =>
+    const checkInStatus = await runStep(artifactsDir, 'daily_check_in', async () => tryDailyCheckIn(page))
+    if (checkInStatus.attempted) {
+      expect(checkInStatus.success, `[${account.label}] daily_check_in 失败: ${checkInStatus.reason}`).toBe(true)
+    }
+
+    const emailStatus = await runStep(artifactsDir, 'bind_email', async () =>
       tryBindEmail(page, {
         emailAccount: account.emailAccount ?? '',
         emailPassword: account.emailPassword ?? '',
         emailImapServer: account.emailImapServer ?? ''
       })
     )
+    if (hasEmailBindCredentials(account)) {
+      expect(emailStatus.success, `[${account.label}] bind_email 失败: ${emailStatus.reason}`).toBe(true)
+    }
   })
 
   test(`${account.label}: PoC 签名`, async ({ page, metamask, artifactsDir, resolvedProxy }) => {
@@ -184,119 +203,152 @@ async function capture(page: import('@playwright/test').Page, artifactsDir: stri
 }
 
 async function connectLuckyX(page: import('@playwright/test').Page, metamask: any): Promise<void> {
-<<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/luckyx.spec.ts
-  console.log('Waiting for network idle...');
-  await page.waitForLoadState('networkidle').catch(() => console.log('Network idle timeout'));
-  
-  const title = await page.title();
-  console.log(`Page title: ${title}`);
-=======
-  console.log('Waiting for page load...');
-  await page.waitForLoadState('domcontentloaded').catch(() => {});
-  await page.waitForTimeout(3_000);
-  
-  const title = await page.title().catch(() => '');
-  console.log(`Page title: ${title}`);
-  if (!title || title === 'MetaMask') {
-    // Page might be dead or navigated to MetaMask - re-navigate to LuckyX
-    console.log('Page not on LuckyX, navigating to baseURL...');
-    await page.goto('/').catch(() => {});
-    await page.waitForLoadState('domcontentloaded').catch(() => {});
-    await page.waitForTimeout(3_000);
-    console.log(`Page title after re-navigate: ${await page.title().catch(() => 'N/A')}`);
-  }
->>>>>>> /Users/asd/.windsurf/worktrees/trae_projects/trae_projects-0cc80f3c/enterprise_pw/tests/luckyx.spec.ts
+  await page.waitForLoadState('domcontentloaded').catch(() => {})
+  await page.waitForTimeout(1_500)
 
-  // Debug: List all buttons
-  const buttons = await page.getByRole('button').all();
-  console.log(`Found ${buttons.length} buttons on page.`);
-  for (const btn of buttons.slice(0, 10)) { // Log first 10
-      const text = await btn.innerText().catch(() => '');
-      if (text.trim()) console.log(` - Button: "${text.replace(/\n/g, ' ')}"`);
+  const title = await page.title().catch(() => '')
+  if (!title || title.toLowerCase().includes('metamask')) {
+    await page.goto('/').catch(() => {})
+    await page.waitForLoadState('domcontentloaded').catch(() => {})
+    await page.waitForTimeout(1_500)
   }
 
-  // 尝试多种选择器查找连接钱包按钮
-  const connectButtonCandidates = [
-    page.locator('xpath=//button[contains(text(), "Connect Wallet")]'),
-    page.getByRole('button', { name: /connect wallet|link wallet|连接钱包/i }),
-    page.getByRole('button', { name: /connect|连接/i }),
-    page.getByText(/connect wallet|连接钱包/i),
-    page.locator('xpath=//button[contains(., "Wallet")]')
-  ]
+  await dismissMigrationModal(page)
+  await waitForPossibleCloudflare(page)
 
-  let clicked = false
-  for (const candidate of connectButtonCandidates) {
-    const btn = candidate.first()
-    if (await btn.isVisible().catch(() => false)) {
-      if (await btn.isEnabled().catch(() => false)) {
-        await btn.click({ timeout: 5000 }).catch(() => {})
-        clicked = true
-        console.log(`Clicked connect button: ${candidate}`)
-        break
-      }
-    }
-  }
-
-  if (!clicked) {
-    console.log('Trying generic fallback for connect button...')
-    const fallback = page.getByRole('button', { name: /connect|wallet|连接|钱包/i }).first()
-    if (await fallback.isVisible({ timeout: 5000 }).catch(() => false)) {
-        await fallback.click({ force: true })
-    } else {
-        console.log('Connect button not found')
-    }
-  }
-
-  // 等待模态框动画
-  await page.waitForTimeout(5000)
-
-  // Debug: Find any element with "MetaMask"
-  console.log('Searching for any "MetaMask" elements...');
-  const allMetaMask = await page.getByText(/MetaMask/i).all();
-  console.log(`Found ${allMetaMask.length} elements with text "MetaMask"`);
-  for (const el of allMetaMask) {
-      try {
-          const tagName = await el.evaluate(e => e.tagName);
-          const visible = await el.isVisible().catch(() => false);
-          const text = await el.innerText().catch(() => '');
-          console.log(` - Tag: ${tagName}, Visible: ${visible}, Text: "${text}"`);
-      } catch (e) {
-          console.log(' - Error inspecting element:', e);
-      }
-  }
-
-  // 尝试查找 MetaMask 选项
   const metamaskCandidates = [
-    page.locator('xpath=//div[contains(text(), "MetaMask") or contains(text(), "METAMASK")]'),
-    page.locator('xpath=//span[contains(text(), "MetaMask")]'),
-    page.locator('xpath=//button[contains(., "MetaMask")]'),
-    page.getByRole('button', { name: /metamask/i }),
-    page.getByText(/metamask/i),
-    page.locator('.web3modal-provider-name').filter({ hasText: /MetaMask/i }),
-    page.locator('img[alt="MetaMask"]').locator('..'), // Click parent of image
-    page.getByText(/Browser Wallet/i), // Fallback
-    page.getByRole('button', { name: /Browser Wallet/i })
+    page.getByRole('button', { name: /metamask/i }).first(),
+    page.getByText(/metamask/i).first(),
+    page.locator('.web3modal-provider-name').filter({ hasText: /metamask/i }).first(),
+    page.getByRole('button', { name: /browser wallet/i }).first(),
+    page.getByText(/browser wallet/i).first()
   ]
 
-  let mmClicked = false
-  for (const candidate of metamaskCandidates) {
-    const btn = candidate.first()
-    if (await btn.isVisible().catch(() => false)) {
-      await btn.click({ timeout: 5000, force: true }).catch(() => {})
-      mmClicked = true
-      console.log(`Clicked MetaMask option: ${candidate}`)
-      break
+  if (!(await hasAnyVisibleLocator(metamaskCandidates))) {
+    const connectCandidates = [
+      ...getConnectButtonNamePatterns().map((pattern) => page.getByRole('button', { name: pattern }).first()),
+      page.locator('button:has-text("Connect Wallet")').first(),
+      page.locator('button:has-text("连接钱包")').first(),
+      page.getByText(/connect wallet|连接钱包/i).first()
+    ]
+
+    const connectClicked = await clickFirstVisibleLocator(connectCandidates)
+    if (connectClicked) {
+      await page.waitForTimeout(1_000)
+      await dismissMigrationModal(page)
+      await waitForPossibleCloudflare(page)
     }
   }
 
-  if (!mmClicked) {
-    // 最后的尝试：可能模态框没打开？或者选择器都不匹配
-    // console.error('Could not find MetaMask option. Dumping body HTML length:', content.length)
-    // await appendFile(path.join('test-results', 'debug_page.html'), content)
-    throw new Error('Could not find MetaMask option in connect modal')
+  // 某些页面需要先点 Login 才会出现 Connect Wallet/MetaMask 选项
+  if (!(await hasAnyVisibleLocator(metamaskCandidates))) {
+    const loginCandidates = [
+      ...getLoginButtonNamePatterns().map((pattern) => page.getByRole('button', { name: pattern }).first()),
+      page.getByText(/login|log in|sign in|登录/i).first()
+    ]
+    const loginClicked = await clickFirstVisibleLocator(loginCandidates)
+    if (loginClicked) {
+      await dismissMigrationModal(page)
+      await waitForPossibleCloudflare(page)
+      await page.waitForTimeout(700)
+    }
+  }
+
+  // login 后再尝试一次 connect wallet
+  if (!(await hasAnyVisibleLocator(metamaskCandidates))) {
+    const connectCandidates = [
+      ...getConnectButtonNamePatterns().map((pattern) => page.getByRole('button', { name: pattern }).first()),
+      page.locator('button:has-text("Connect Wallet")').first(),
+      page.locator('button:has-text("连接钱包")').first(),
+      page.getByText(/connect wallet|连接钱包/i).first()
+    ]
+    const connectClicked = await clickFirstVisibleLocator(connectCandidates)
+    if (connectClicked) {
+      await page.waitForTimeout(1_000)
+      await dismissMigrationModal(page)
+      await waitForPossibleCloudflare(page)
+    }
+  }
+
+  if (!(await hasAnyVisibleLocator(metamaskCandidates))) {
+    const debug = await collectVisibleButtonTexts(page)
+    throw new Error(
+      [
+        '[LuckyX] 未找到连接钱包按钮或 MetaMask 选项',
+        `url=${page.url()}`,
+        `title=${await page.title().catch(() => '')}`,
+        `visible_buttons=${debug.join(' | ') || '(none)'}`
+      ].join('\n')
+    )
+  }
+
+  const metamaskClicked = await clickFirstVisibleLocator(metamaskCandidates, { force: true })
+  if (!metamaskClicked) {
+    const debug = await collectVisibleButtonTexts(page)
+    throw new Error(
+      [
+        '[LuckyX] 未找到 MetaMask 选项',
+        `url=${page.url()}`,
+        `visible_buttons=${debug.join(' | ') || '(none)'}`
+      ].join('\n')
+    )
   }
 
   await metamask.connectToDapp()
+}
+
+async function clickFirstVisibleLocator(
+  candidates: import('@playwright/test').Locator[],
+  options?: { force?: boolean }
+): Promise<boolean> {
+  for (const candidate of candidates) {
+    const locator = candidate.first()
+    const visible = await locator.isVisible().catch(() => false)
+    if (!visible) continue
+    const enabled = await locator.isEnabled().catch(() => true)
+    if (!enabled) continue
+    const clicked = await locator
+      .click({ timeout: 5_000, force: options?.force === true })
+      .then(() => true)
+      .catch(() => false)
+    if (clicked) return true
+  }
+  return false
+}
+
+async function hasAnyVisibleLocator(candidates: import('@playwright/test').Locator[]): Promise<boolean> {
+  for (const candidate of candidates) {
+    if (await candidate.first().isVisible().catch(() => false)) return true
+  }
+  return false
+}
+
+async function collectVisibleButtonTexts(page: import('@playwright/test').Page): Promise<string[]> {
+  const buttons = await page.getByRole('button').all().catch(() => [])
+  const out: string[] = []
+  for (const button of buttons.slice(0, 25)) {
+    const visible = await button.isVisible().catch(() => false)
+    if (!visible) continue
+    const text = (await button.innerText().catch(() => '')).trim().replace(/\s+/g, ' ')
+    if (text) out.push(text)
+  }
+  return out
+}
+
+async function dismissMigrationModal(page: import('@playwright/test').Page): Promise<void> {
+  const bodyText = await page.locator('body').innerText().catch(() => '')
+  if (!looksLikeMigrationModal(bodyText)) return
+
+  const closeCandidates = [
+    page.getByRole('button', { name: /close|关闭|skip|later/i }).first(),
+    page.locator('button[aria-label*="close" i]').first(),
+    page.locator('button:has-text("×")').first(),
+    page.locator('button:has-text("✕")').first(),
+    page.locator('[class*="close"]').first()
+  ]
+  await clickFirstVisibleLocator(closeCandidates, { force: true })
+  await page.keyboard.press('Escape').catch(() => {})
+  await page.waitForTimeout(500)
 }
 
 async function waitForReceipt(
@@ -324,36 +376,90 @@ async function jsonRpc(rpcUrl: string, method: string, params: unknown[]): Promi
 }
 
 async function waitForPossibleCloudflare(page: import('@playwright/test').Page): Promise<void> {
-  const timeoutMs = 300_000 // 5 minutes - allows manual Turnstile solving
+  const timeoutMs = resolveChallengeWaitTimeoutMs()
+  const capsolverApiKey = (process.env.CAPSOLVER_API_KEY ?? '').trim()
   const start = Date.now()
   let logged = false
   while (Date.now() - start < timeoutMs) {
-    const bodyText = (await page.locator('body').innerText().catch(() => '')).toLowerCase()
-    const looksLikeChallenge =
-      bodyText.includes('checking your browser') ||
-      bodyText.includes('just a moment') ||
-      bodyText.includes('cloudflare') ||
-      bodyText.includes('验证') ||
-      bodyText.includes('正在检查') ||
-      bodyText.includes('turnstile')
-    if (!looksLikeChallenge) {
-      if (logged) console.log('[Cloudflare] Challenge passed!')
+    if (page.isClosed()) {
+      throw new Error('页面已关闭，验证码等待被中断（可能是外层测试超时）')
+    }
+
+    const [bodyText, html] = await Promise.all([
+      page.locator('body').innerText().catch(() => ''),
+      page.content().catch(() => '')
+    ])
+    const signals = detectChallengeSignals({ bodyText, html })
+    const turnstileFrameVisible = await page
+      .locator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]')
+      .first()
+      .isVisible()
+      .catch(() => false)
+    const recaptchaFrameVisible = await page
+      .locator('iframe[src*="recaptcha"], iframe[title*="reCAPTCHA"]')
+      .first()
+      .isVisible()
+      .catch(() => false)
+    const turnstileContainerVisible = await page
+      .locator('.cf-turnstile, [data-sitekey][class*="turnstile"], [id*="turnstile"]')
+      .first()
+      .isVisible()
+      .catch(() => false)
+
+    const hasChallenge =
+      signals.looksLikeCloudflareInterstitial || turnstileFrameVisible || recaptchaFrameVisible || turnstileContainerVisible
+
+    if (!hasChallenge) {
+      if (logged) console.log('[Challenge] verification passed')
       return
     }
     if (!logged) {
-      console.log('[Cloudflare] Turnstile challenge detected. Please solve it manually in the browser window...')
-      console.log('[Cloudflare] Waiting up to 5 minutes for challenge to be solved...')
+      const types = [
+        signals.hasTurnstile ? 'turnstile' : '',
+        signals.hasRecaptcha ? 'recaptcha' : '',
+        signals.looksLikeCloudflareInterstitial ? 'cloudflare' : ''
+      ]
+        .filter(Boolean)
+        .join('+')
+      console.log(
+        `[Challenge] detected (${types || 'unknown'}), waiting for manual solve (<=${Math.floor(timeoutMs / 1000)}s)`
+      )
+      if (!capsolverApiKey) {
+        console.warn('[Challenge] CAPSOLVER_API_KEY is empty; extension can load but will not auto-solve.')
+      }
       logged = true
     }
-    // Try clicking the Turnstile checkbox if visible
-    const turnstileFrame = page.frameLocator('iframe[src*="challenges.cloudflare.com"]').first()
-    await turnstileFrame.locator('input[type="checkbox"], .ctp-checkbox-label').first().click({ timeout: 1_000 }).catch(() => {})
-    await page.waitForTimeout(3_000)
+
+    if (turnstileFrameVisible) {
+      const turnstileFrame = page.frameLocator('iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]').first()
+      await turnstileFrame
+        .locator('input[type="checkbox"], .ctp-checkbox-label')
+        .first()
+        .click({ timeout: 1_000 })
+        .catch(() => {})
+    }
+
+    await dismissMigrationModal(page)
+    await page.waitForTimeout(2_000)
   }
-  console.log('[Cloudflare] Challenge timeout after 5 minutes')
+  throw new Error(`验证码未在 ${Math.floor(timeoutMs / 1000)} 秒内完成，请手动完成验证后重试`)
 }
 
-async function tryDailyCheckIn(page: import('@playwright/test').Page): Promise<void> {
+function resolveChallengeWaitTimeoutMs(): number {
+  const fromEnv = Number((process.env.CHALLENGE_WAIT_TIMEOUT_MS ?? '').trim())
+  if (Number.isFinite(fromEnv) && fromEnv >= 15_000) return Math.floor(fromEnv)
+  return 180_000
+}
+
+function hasEmailBindCredentials(account: {
+  emailAccount?: string
+  emailPassword?: string
+  emailImapServer?: string
+}): boolean {
+  return Boolean(account.emailAccount?.trim() && account.emailPassword?.trim() && account.emailImapServer?.trim())
+}
+
+async function tryDailyCheckIn(page: import('@playwright/test').Page): Promise<StepStatus> {
   const candidates = [
     page.getByRole('button', { name: /签到|check[- ]?in/i }),
     page.getByText(/签到|check[- ]?in/i),
@@ -362,19 +468,26 @@ async function tryDailyCheckIn(page: import('@playwright/test').Page): Promise<v
   for (const locator of candidates) {
     const first = locator.first()
     if (await first.isVisible().catch(() => false)) {
-      await first.click({ timeout: 5_000 }).catch(() => {})
+      const clicked = await first.click({ timeout: 5_000 }).then(() => true).catch(() => false)
+      if (!clicked) {
+        return { attempted: true, success: false, reason: 'checkin_button_click_failed' }
+      }
       await page.waitForTimeout(1_000)
-      return
+      return { attempted: true, success: true, reason: 'checkin_clicked' }
     }
   }
+  return { attempted: false, success: true, reason: 'checkin_button_not_found' }
 }
 
 async function tryBindEmail(
   page: import('@playwright/test').Page,
   input: { emailAccount: string; emailPassword: string; emailImapServer: string }
-): Promise<void> {
+): Promise<StepStatus> {
   const email = input.emailAccount.trim()
-  if (!email) return
+  if (!email) return { attempted: false, success: true, reason: 'email_not_configured' }
+  if (!input.emailPassword.trim() || !input.emailImapServer.trim()) {
+    return { attempted: true, success: false, reason: 'email_credentials_incomplete' }
+  }
 
   const openProfileCandidates = [
     page.getByRole('button', { name: /profile|account|设置|我的/i }),
@@ -403,14 +516,17 @@ async function tryBindEmail(
       break
     }
   }
-  if (!emailField) return
+  if (!emailField) return { attempted: true, success: false, reason: 'email_input_not_found' }
 
-  await emailField.fill(email)
+  const emailFilled = await emailField.fill(email).then(() => true).catch(() => false)
+  if (!emailFilled) return { attempted: true, success: false, reason: 'email_fill_failed' }
 
   const sendCodeButton = page.getByRole('button', { name: /send|code|验证码|获取验证码/i }).first()
-  if (await sendCodeButton.isVisible().catch(() => false)) {
-    await sendCodeButton.click().catch(() => {})
+  if (!(await sendCodeButton.isVisible().catch(() => false))) {
+    return { attempted: true, success: false, reason: 'send_code_button_not_found' }
   }
+  const sendClicked = await sendCodeButton.click().then(() => true).catch(() => false)
+  if (!sendClicked) return { attempted: true, success: false, reason: 'send_code_click_failed' }
 
   const code = await fetchLatestVerificationCodeImap({
     emailAccount: input.emailAccount,
@@ -418,25 +534,30 @@ async function tryBindEmail(
     emailImapServer: input.emailImapServer
   }).catch(() => '')
 
-  if (!code) return
+  if (!code) return { attempted: true, success: false, reason: 'verification_code_not_found' }
 
   const codeFieldCandidates = [
     page.getByLabel(/code|验证码/i),
     page.getByPlaceholder(/code|验证码/i),
     page.locator('input[inputmode="numeric"]')
   ]
+  let codeFilled = false
   for (const locator of codeFieldCandidates) {
     const first = locator.first()
     if (await first.isVisible().catch(() => false)) {
-      await first.fill(code)
+      codeFilled = await first.fill(code).then(() => true).catch(() => false)
       break
     }
   }
+  if (!codeFilled) return { attempted: true, success: false, reason: 'code_input_not_found_or_fill_failed' }
 
   const confirmButton = page.getByRole('button', { name: /confirm|bind|verify|确认|绑定|验证/i }).first()
-  if (await confirmButton.isVisible().catch(() => false)) {
-    await confirmButton.click().catch(() => {})
+  if (!(await confirmButton.isVisible().catch(() => false))) {
+    return { attempted: true, success: false, reason: 'email_confirm_button_not_found' }
   }
+  const confirmed = await confirmButton.click().then(() => true).catch(() => false)
+  if (!confirmed) return { attempted: true, success: false, reason: 'email_confirm_click_failed' }
+  return { attempted: true, success: true, reason: 'email_bind_submitted' }
 }
 
 async function fetchLatestVerificationCodeImap(input: {

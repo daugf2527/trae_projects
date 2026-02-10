@@ -70,7 +70,7 @@ class LuckyXPage:
         self.logger.info("Wallet connection flow finished.")
 
     @robust_step(max_retries=2)
-    def daily_checkin(self):
+    def daily_checkin(self) -> bool:
         """Performs daily check-in/sign-in if available."""
         self.logger.info("Attempting Daily Check-in...")
         try:
@@ -82,14 +82,17 @@ class LuckyXPage:
                 self.logger.info("Clicked Check-in button.")
                 time.sleep(2)
                 self.mm_controller.sign_message()
+                return True
             else:
                 self.logger.info("No Check-in button found (maybe already checked in?).")
+                return False
                 
         except Exception as e:
             self.logger.warning(f"[TASK_FAILED] Daily check-in failed: {e}")
+            return False
 
     @robust_step(max_retries=2)
-    def bind_email(self):
+    def bind_email(self) -> bool:
         """Binds email address."""
         self.logger.info("Starting Email Binding...")
         cfg = getattr(self.context, "config", None)
@@ -112,7 +115,7 @@ class LuckyXPage:
             bind_btn = self.driver.find_elements(By.XPATH, "//button[contains(text(), 'Bind Email')]")
             if not bind_btn:
                 self.logger.warning("Bind Email button not found.")
-                return
+                return False
 
         bind_btn[0].click()
         
@@ -136,8 +139,10 @@ class LuckyXPage:
             confirm_btn = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Confirm') or contains(text(), 'Bind')]")
             confirm_btn.click()
             self.logger.info("Email binding submitted.")
+            return True
         else:
             self.logger.error("[TASK_FAILED] Email binding failed: Could not get verification code.")
+            return False
 
     @robust_step(max_retries=2)
     def handle_invites(self):

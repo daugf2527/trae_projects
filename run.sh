@@ -27,13 +27,17 @@ USAGE
  done
 
 if [[ -z "$MODE" ]]; then echo "Missing --mode" >&2; exit 2; fi
+if [[ "$HEADLESS" == "true" && "$MODE" == "python" ]]; then
+  echo "--headless is not supported in python mode (MetaMask automation requires headed browser)." >&2
+  exit 2
+fi
 
 ENV_EXPORTS=()
 [[ -n "$ENV_FILE" ]] && ENV_EXPORTS+=("DOTENV_PATH=$ENV_FILE")
 [[ -n "$ACCOUNTS" ]] && ENV_EXPORTS+=("ACCOUNTS_FILE=$ACCOUNTS")
 [[ -n "$BASE_URL" ]] && ENV_EXPORTS+=("BASE_URL=$BASE_URL")
 [[ -n "$ARTIFACTS_DIR" ]] && ENV_EXPORTS+=("ARTIFACTS_DIR=$ARTIFACTS_DIR")
-[[ "$HEADLESS" == "true" ]] && ENV_EXPORTS+=("HEADLESS=true")
+[[ "$HEADLESS" == "true" && "$MODE" == "pw" ]] && ENV_EXPORTS+=("HEADLESS=true")
 
 if [[ "$MODE" == "python" ]]; then
   CMD=(python3 main.py)
