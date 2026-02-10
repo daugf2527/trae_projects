@@ -188,9 +188,71 @@ export function metaMaskFixturesWithProxy(
           await metamaskPage.goto(`chrome-extension://${extensionId}/home.html`)
           await metamaskPage.waitForLoadState('domcontentloaded')
 
-          const unlockInput = metamaskPage.getByTestId('unlock-password').first()
-          if (await unlockInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-            await unlockForFixture(metamaskPage, walletPassword)
+          // Try multiple selectors for unlock input (testid may vary by MetaMask version)
+          const unlockSelectors = [
+            metamaskPage.getByTestId('unlock-password'),
+            metamaskPage.locator('input[type="password"]'),
+            metamaskPage.getByPlaceholder(/password|密码/i)
+          ]
+          
+          let unlockInput: ReturnType<typeof metamaskPage.locator> | null = null
+          for (const sel of unlockSelectors) {
+            if (await sel.first().isVisible({ timeout: 3_000 }).catch(() => false)) {
+              unlockInput = sel.first()
+              break
+            }
+          }
+          
+          if (unlockInput) {
+            console.log('[Fixture] Found unlock password input, attempting to unlock...')
+            try {
+              // Try standard Synpress unlock first
+              await unlockForFixture(metamaskPage, walletPassword)
+              console.log('[Fixture] unlockForFixture completed')
+            } catch (e) {
+              console.log('[Fixture] unlockForFixture failed, trying manual fallback...', e)
+              // Fallback: manual unlock
+              try {
+                 await unlockInput.fill(walletPassword)
+                 // Try testid submit first, then generic submit
+                 const submitBtn = metamaskPage.locator('[data-testid="unlock-submit"], button[type="submit"]').first()
+                 if (await submitBtn.isVisible()) {
+                    await submitBtn.click()
+                 } else {
+                    // Text based fallback
+                    await metamaskPage.locator('button').filter({ hasText: /unlock|登录|解锁|进入/i }).first().click()
+                 }
+                 console.log('[Fixture] Manual unlock attempt submitted')
+              } catch (fallbackError) {
+                 console.error('[Fixture] Manual unlock failed:', fallbackError)
+              }
+            }
+            // Wait for unlock to complete (password field should disappear)
+            await unlockInput.waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => console.log('[Fixture] Warning: Password input still visible after unlock'))
+          } else {
+            // Wait for unlock to complete
+            await metamaskPage.waitForTimeout(2_000)
+          }
+          
+          // Handle metametrics consent page if it appears ("Help improve MetaMask")
+          const continueBtn = metamaskPage.locator('button').filter({ hasText: /continue|继续|i agree/i }).first()
+          if (await continueBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+            await continueBtn.click()
+            await metamaskPage.waitForTimeout(1_000)
+          }
+          
+          // Handle "Your wallet is ready" page - click "Open wallet"
+          const openWalletBtn = metamaskPage.locator('button').filter({ hasText: /open wallet|打开钱包|进入钱包/i }).first()
+          if (await openWalletBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
+            // Wait for button to become enabled (may be disabled initially)
+            await openWalletBtn.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {})
+            for (let i = 0; i < 10; i++) {
+              const disabled = await openWalletBtn.isDisabled().catch(() => true)
+              if (!disabled) break
+              await metamaskPage.waitForTimeout(500)
+            }
+            await openWalletBtn.click({ force: true })
+            await metamaskPage.waitForTimeout(2_000)
           }
 
           const traceStarted = await context.tracing

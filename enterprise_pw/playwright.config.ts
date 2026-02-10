@@ -16,7 +16,8 @@ export default defineConfig({
     baseURL: env.BASE_URL?.trim() || 'https://app.luckyx.world/',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    trace: 'retain-on-failure'
+    trace: 'retain-on-failure',
+    viewport: { width: 1920, height: 1080 }
   },
   reporter: [['list']]
 })

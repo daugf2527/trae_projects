@@ -184,13 +184,100 @@ async function capture(page: import('@playwright/test').Page, artifactsDir: stri
 }
 
 async function connectLuckyX(page: import('@playwright/test').Page, metamask: any): Promise<void> {
-  const connectButton = page.getByRole('button', { name: /connect|wallet|连接|钱包/i }).first()
-  await expect(connectButton).toBeVisible({ timeout: 30_000 })
-  await connectButton.click()
+  console.log('Waiting for network idle...');
+  await page.waitForLoadState('networkidle').catch(() => console.log('Network idle timeout'));
+  
+  const title = await page.title();
+  console.log(`Page title: ${title}`);
 
-  const metamaskOption = page.getByText(/metamask/i).first()
-  await expect(metamaskOption).toBeVisible({ timeout: 30_000 })
-  await metamaskOption.click()
+  // Debug: List all buttons
+  const buttons = await page.getByRole('button').all();
+  console.log(`Found ${buttons.length} buttons on page.`);
+  for (const btn of buttons.slice(0, 10)) { // Log first 10
+      const text = await btn.innerText().catch(() => '');
+      if (text.trim()) console.log(` - Button: "${text.replace(/\n/g, ' ')}"`);
+  }
+
+  // 尝试多种选择器查找连接钱包按钮
+  const connectButtonCandidates = [
+    page.locator('xpath=//button[contains(text(), "Connect Wallet")]'),
+    page.getByRole('button', { name: /connect wallet|link wallet|连接钱包/i }),
+    page.getByRole('button', { name: /connect|连接/i }),
+    page.getByText(/connect wallet|连接钱包/i),
+    page.locator('xpath=//button[contains(., "Wallet")]')
+  ]
+
+  let clicked = false
+  for (const candidate of connectButtonCandidates) {
+    const btn = candidate.first()
+    if (await btn.isVisible().catch(() => false)) {
+      if (await btn.isEnabled().catch(() => false)) {
+        await btn.click({ timeout: 5000 }).catch(() => {})
+        clicked = true
+        console.log(`Clicked connect button: ${candidate}`)
+        break
+      }
+    }
+  }
+
+  if (!clicked) {
+    console.log('Trying generic fallback for connect button...')
+    const fallback = page.getByRole('button', { name: /connect|wallet|连接|钱包/i }).first()
+    if (await fallback.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await fallback.click({ force: true })
+    } else {
+        console.log('Connect button not found')
+    }
+  }
+
+  // 等待模态框动画
+  await page.waitForTimeout(5000)
+
+  // Debug: Find any element with "MetaMask"
+  console.log('Searching for any "MetaMask" elements...');
+  const allMetaMask = await page.getByText(/MetaMask/i).all();
+  console.log(`Found ${allMetaMask.length} elements with text "MetaMask"`);
+  for (const el of allMetaMask) {
+      try {
+          const tagName = await el.evaluate(e => e.tagName);
+          const visible = await el.isVisible().catch(() => false);
+          const text = await el.innerText().catch(() => '');
+          console.log(` - Tag: ${tagName}, Visible: ${visible}, Text: "${text}"`);
+      } catch (e) {
+          console.log(' - Error inspecting element:', e);
+      }
+  }
+
+  // 尝试查找 MetaMask 选项
+  const metamaskCandidates = [
+    page.locator('xpath=//div[contains(text(), "MetaMask") or contains(text(), "METAMASK")]'),
+    page.locator('xpath=//span[contains(text(), "MetaMask")]'),
+    page.locator('xpath=//button[contains(., "MetaMask")]'),
+    page.getByRole('button', { name: /metamask/i }),
+    page.getByText(/metamask/i),
+    page.locator('.web3modal-provider-name').filter({ hasText: /MetaMask/i }),
+    page.locator('img[alt="MetaMask"]').locator('..'), // Click parent of image
+    page.getByText(/Browser Wallet/i), // Fallback
+    page.getByRole('button', { name: /Browser Wallet/i })
+  ]
+
+  let mmClicked = false
+  for (const candidate of metamaskCandidates) {
+    const btn = candidate.first()
+    if (await btn.isVisible().catch(() => false)) {
+      await btn.click({ timeout: 5000, force: true }).catch(() => {})
+      mmClicked = true
+      console.log(`Clicked MetaMask option: ${candidate}`)
+      break
+    }
+  }
+
+  if (!mmClicked) {
+    // 最后的尝试：可能模态框没打开？或者选择器都不匹配
+    // console.error('Could not find MetaMask option. Dumping body HTML length:', content.length)
+    // await appendFile(path.join('test-results', 'debug_page.html'), content)
+    throw new Error('Could not find MetaMask option in connect modal')
+  }
 
   await metamask.connectToDapp()
 }
