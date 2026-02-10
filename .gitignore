@@ -9,3 +9,4 @@ __pycache__/
 *.pyo
 luckyx_automation/assets/metamask-extension/
 luckyx_chrome_*
+node_modules/
