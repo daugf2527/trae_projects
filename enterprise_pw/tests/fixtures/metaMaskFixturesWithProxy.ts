@@ -55,7 +55,16 @@ async function prepareCapsolverExtension(
 
   const apiKey = (process.env.CAPSOLVER_API_KEY ?? '').trim()
   const proxyServer = (proxy?.server ?? '').trim()
+<<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
   if (!apiKey && !proxyServer) return tempPath
+=======
+  console.log('[CapSolver] API Key configured:', apiKey ? `Yes (${apiKey.slice(0, 8)}...)` : 'No')
+  console.log('[CapSolver] Proxy configured:', proxyServer ? 'Yes' : 'No')
+  if (!apiKey) {
+    console.log('[CapSolver] No API key - skipping CapSolver extension (set CAPSOLVER_API_KEY to enable)')
+    return null
+  }
+>>>>>>> /Users/asd/.windsurf/worktrees/trae_projects/trae_projects-0cc80f3c/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
 
   const configPath = path.join(tempPath, 'assets', 'config.js')
   try {
@@ -99,8 +108,48 @@ const { CACHE_DIR_NAME, createTempContextDir, defineWalletSetup, prepareExtensio
     removeTempContextDir: (contextPath: string) => Promise<unknown>
   }
 
-const { getExtensionId, unlockForFixture, MetaMask: MetaMaskClass } = synpressMetaMask as unknown as {
-  getExtensionId: (context: BrowserContext, extensionName: string) => Promise<string>
+// Custom getExtensionId with retry logic - Synpress's version fails on some Chromium builds
+async function getExtensionIdWithRetry(context: BrowserContext, extensionName: string): Promise<string> {
+  const page = await context.newPage()
+  await page.goto('chrome://extensions')
+
+  let extensions: Array<{ id: string; name: string }> | null = null
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      await page.waitForTimeout(1_000)
+      const result = await page.evaluate(`
+        (typeof chrome !== 'undefined' && chrome.management && typeof chrome.management.getAll === 'function')
+          ? chrome.management.getAll()
+          : null
+      `)
+      if (result && Array.isArray(result) && result.length > 0) {
+        extensions = result as Array<{ id: string; name: string }>
+        break
+      }
+      console.log(`[getExtensionId] Attempt ${attempt + 1}: chrome.management.getAll() returned empty or null, retrying...`)
+    } catch (e) {
+      console.log(`[getExtensionId] Attempt ${attempt + 1}: ${e}, retrying...`)
+    }
+    if (attempt < 9) await page.reload()
+  }
+
+  await page.close()
+
+  if (!extensions || extensions.length === 0) {
+    throw new Error(`[getExtensionId] chrome.management.getAll() failed after 10 retries`)
+  }
+
+  const target = extensions.find(ext => ext.name.toLowerCase() === extensionName.toLowerCase())
+  if (!target) {
+    throw new Error(
+      `[getExtensionId] Extension "${extensionName}" not found. Available: ${extensions.map(e => e.name).join(', ')}`
+    )
+  }
+  console.log(`[getExtensionId] Found ${extensionName} with ID: ${target.id}`)
+  return target.id
+}
+
+const { unlockForFixture, MetaMask: MetaMaskClass } = synpressMetaMask as unknown as {
   unlockForFixture: (page: Page, walletPassword: string) => Promise<void>
   MetaMask: new (context: BrowserContext, page: Page, password: string, extensionId?: string) => {
     addNetwork: (network: {
@@ -183,7 +232,7 @@ export function metaMaskFixturesWithProxy(
             locale: browserLocale
           })
 
-          const extensionId = await getExtensionId(context, 'MetaMask')
+          const extensionId = await getExtensionIdWithRetry(context, 'MetaMask')
           const metamaskPage = (context.pages()[0] as Page | undefined) ?? (await context.newPage())
           await metamaskPage.goto(`chrome-extension://${extensionId}/home.html`)
           await metamaskPage.waitForLoadState('domcontentloaded')
@@ -281,7 +330,7 @@ export function metaMaskFixturesWithProxy(
     },
     extensionId: async ({ context }, use) => {
       const cachedId = (context as ContextWithMetaMaskState)[METAMASK_EXTENSION_ID]
-      const extensionId = cachedId ?? (await getExtensionId(context, 'MetaMask'))
+      const extensionId = cachedId ?? (await getExtensionIdWithRetry(context, 'MetaMask'))
       await use(extensionId)
     },
     metamask: async (
@@ -343,13 +392,7 @@ async function launchPersistentContextForRun(input: {
 
   const browserArgs = [
     `--disable-extensions-except=${disableExcept.join(',')}`,
-    `--lang=${input.locale}`,
-    // Anti-detection flags to help with Cloudflare Turnstile
-    '--disable-blink-features=AutomationControlled',
-    '--disable-features=AutomationControlled',
-    '--disable-infobars',
-    '--no-first-run',
-    '--no-default-browser-check'
+    `--lang=${input.locale}`
   ]
 <<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
 <<<<<<< /Users/asd/Documents/trae_projects/enterprise_pw/tests/fixtures/metaMaskFixturesWithProxy.ts
